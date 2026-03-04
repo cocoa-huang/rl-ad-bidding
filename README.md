@@ -67,7 +67,6 @@ rl-ad-bidding/
 ├── data/            # Local data files (gitignored — not committed)
 ├── saved_models/    # Trained model checkpoints (gitignored — not committed)
 ├── requirements.txt
-├── CLAUDE.md        # Instructions for Claude Code working in this repo
 └── README.md
 ```
 

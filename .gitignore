@@ -38,3 +38,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Local Claude Code context (never commit)
+CLAUDE.md
