@@ -1,0 +1,40 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# Data files
+data/
+*.csv
+*.tsv
+*.gz
+*.parquet
+*.pkl
+*.7z
+*.zip
+
+# Models
+saved_models/
+*.pt
+*.pth
+*.ckpt
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Environments
+.env
+venv/
+.conda/
+
+# Experiment tracking
+wandb/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
