@@ -10,6 +10,13 @@ Reference:
     Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).
     Proximal Policy Optimization Algorithms. arXiv:1707.06347.
 """
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Optional
+
+import numpy as np
+from stable_baselines3 import PPO
 
 
 class PPOAgent:
