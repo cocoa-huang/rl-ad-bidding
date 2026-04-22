@@ -1,15 +1,17 @@
 """
-Proximal Policy Optimization (PPO) agent for real-time ad bidding.
+PPO agent wrapper around Stable-Baselines3 for real-time ad bidding.
 
-Implements the clipped-objective PPO algorithm (Schulman et al., 2017) adapted
-for the continuous action space of the AuctionNetGymEnv. The actor outputs a
-Gaussian distribution over bid multipliers; the critic estimates the value
-function used for advantage estimation via GAE-lambda.
+This module does NOT implement PPO from scratch. Instead, it provides a thin,
+project-friendly adapter around stable_baselines3.PPO so the rest of the codebase
+can interact with a consistent agent interface.
 
-Reference:
-    Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).
-    Proximal Policy Optimization Algorithms. arXiv:1707.06347.
+Expected usage:
+    env = AuctionNetGymEnv(env_config)
+    agent = PPOAgent(env.observation_space, env.action_space, agent_config, env=env)
+    agent.update(total_timesteps=50_000)
+    action, _, _ = agent.select_action(obs)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,80 +22,171 @@ from stable_baselines3 import PPO
 
 
 class PPOAgent:
-    """PPO agent with a clipped surrogate objective.
+    """Thin wrapper around stable_baselines3.PPO."""
 
-    Maintains separate actor (policy) and critic (value function) networks.
-    Updates are performed on mini-batches collected over a fixed rollout
-    horizon, with clipping to constrain the policy update step size.
-
-    Attributes:
-        config (dict): Hyperparameters from configs/YAML (lr, gamma, batch_size,
-            clip_epsilon, n_epochs, gae_lambda, etc.).
-        actor (torch.nn.Module): Policy network mapping observations to action
-            distribution parameters.
-        critic (torch.nn.Module): Value network mapping observations to scalar
-            state-value estimates.
-        optimizer (torch.optim.Optimizer): Shared or separate optimizers for
-            actor and critic.
-    """
-
-    def __init__(self, observation_space, action_space, config: dict):
-        """Initialize actor and critic networks and optimizer.
-
-        Args:
-            observation_space (gymnasium.Space): Observation space from the env,
-                used to determine input dimensionality.
-            action_space (gymnasium.Space): Action space from the env, used to
-                determine output dimensionality and action bounds.
-            config (dict): Hyperparameter config from configs/default.yaml
-                under the 'agent' section.
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        config: dict,
+        env=None,
+    ):
         """
-        raise NotImplementedError
-
-    def select_action(self, observation):
-        """Sample an action from the current policy given an observation.
+        Initialize the SB3 PPO model.
 
         Args:
-            observation (np.ndarray): Current environment observation.
+            observation_space: Gymnasium observation space. Kept for interface
+                consistency, even though SB3 primarily needs `env`.
+            action_space: Gymnasium action space. Kept for interface consistency.
+            config (dict): Hyperparameters from configs/default.yaml under 'agent'.
+            env: Gymnasium-compatible environment or VecEnv. Required for training.
+        """
+        self.observation_space = observation_space
+        self.action_space = action_space
+        self.config = config
+        self.env = env
+
+        self.policy = config.get("policy", "MlpPolicy")
+        self.verbose = int(config.get("verbose", 1))
+        self.device = config.get("device", "auto")
+        self.tensorboard_log = config.get("tensorboard_log", None)
+
+        # Core PPO hyperparameters
+        self.learning_rate = float(config.get("lr", 3e-4))
+        self.n_steps = int(config.get("n_steps", 2048))
+        self.batch_size = int(config.get("batch_size", 64))
+        self.n_epochs = int(config.get("n_epochs", 10))
+        self.gamma = float(config.get("gamma", 0.99))
+        self.gae_lambda = float(config.get("gae_lambda", 0.95))
+        self.clip_range = float(config.get("clip_range", 0.2))
+        self.ent_coef = float(config.get("ent_coef", 0.0))
+        self.vf_coef = float(config.get("vf_coef", 0.5))
+        self.max_grad_norm = float(config.get("max_grad_norm", 0.5))
+        self.seed = config.get("seed", None)
+
+        # Optional policy network structure
+        policy_kwargs = config.get("policy_kwargs", None)
+
+        self.model: Optional[PPO] = None
+        if env is not None:
+            self.model = PPO(
+                policy=self.policy,
+                env=env,
+                learning_rate=self.learning_rate,
+                n_steps=self.n_steps,
+                batch_size=self.batch_size,
+                n_epochs=self.n_epochs,
+                gamma=self.gamma,
+                gae_lambda=self.gae_lambda,
+                clip_range=self.clip_range,
+                ent_coef=self.ent_coef,
+                vf_coef=self.vf_coef,
+                max_grad_norm=self.max_grad_norm,
+                verbose=self.verbose,
+                seed=self.seed,
+                device=self.device,
+                tensorboard_log=self.tensorboard_log,
+                policy_kwargs=policy_kwargs,
+            )
+
+    def set_env(self, env) -> None:
+        """Attach or replace the environment."""
+        self.env = env
+        if self.model is None:
+            self.model = PPO(
+                policy=self.policy,
+                env=env,
+                learning_rate=self.learning_rate,
+                n_steps=self.n_steps,
+                batch_size=self.batch_size,
+                n_epochs=self.n_epochs,
+                gamma=self.gamma,
+                gae_lambda=self.gae_lambda,
+                clip_range=self.clip_range,
+                ent_coef=self.ent_coef,
+                vf_coef=self.vf_coef,
+                max_grad_norm=self.max_grad_norm,
+                verbose=self.verbose,
+                seed=self.seed,
+                device=self.device,
+                tensorboard_log=self.tensorboard_log,
+                policy_kwargs=self.config.get("policy_kwargs", None),
+            )
+        else:
+            self.model.set_env(env)
+
+    def select_action(self, observation, deterministic: bool = False):
+        """
+        Predict an action from the current policy.
+
+        Args:
+            observation (np.ndarray): Current observation.
+            deterministic (bool): Whether to use deterministic policy output.
 
         Returns:
-            action (np.ndarray): Sampled action (bid multiplier).
-            log_prob (float): Log-probability of the sampled action under the
-                current policy, needed for the PPO surrogate loss.
-            value (float): Critic's value estimate for this observation.
+            action (np.ndarray): Predicted action.
+            log_prob: Not exposed directly by SB3's public `predict` API, so None.
+            value: Not exposed directly by SB3's public `predict` API, so None.
         """
-        raise NotImplementedError
+        if self.model is None:
+            raise ValueError("PPO model is not initialized. Call set_env(env) first.")
 
-    def update(self, rollout_buffer):
-        """Perform one PPO update step on the collected rollout buffer.
+        obs = np.asarray(observation, dtype=np.float32)
+        action, _states = self.model.predict(obs, deterministic=deterministic)
+        return action, None, None
 
-        Computes GAE-lambda advantages, then iterates over the buffer for
-        n_epochs mini-batch gradient updates using the clipped surrogate
-        objective plus value loss and entropy bonus.
+    def update(self, rollout_buffer=None, total_timesteps: Optional[int] = None, **learn_kwargs):
+        """
+        Train the SB3 PPO model.
+
+        Since PPO is delegated to SB3, `rollout_buffer` is ignored. Training is
+        performed by calling `learn()`.
 
         Args:
-            rollout_buffer: Object containing collected transitions
-                (observations, actions, rewards, log_probs, values, dones).
+            rollout_buffer: Ignored. Kept only for backward compatibility.
+            total_timesteps (int): Number of timesteps to train for.
+            **learn_kwargs: Extra keyword arguments passed to `model.learn()`.
 
         Returns:
-            metrics (dict): Diagnostic scalars including policy_loss,
-                value_loss, entropy, and approx_kl for W&B logging.
+            dict: Minimal diagnostics.
         """
-        raise NotImplementedError
+        if self.model is None:
+            raise ValueError("PPO model is not initialized. Call set_env(env) first.")
+
+        if total_timesteps is None:
+            total_timesteps = int(self.config.get("total_timesteps", 10_000))
+
+        self.model.learn(total_timesteps=total_timesteps, **learn_kwargs)
+        return {"trained_timesteps": total_timesteps}
 
     def save(self, path: str):
-        """Serialize agent weights to disk.
+        """
+        Save the SB3 model checkpoint.
 
         Args:
-            path (str): File path (relative) to save the checkpoint.
-                Checkpoints are stored under saved_models/.
+            path (str): Save path, e.g. 'saved_models/ppo_agent'.
+                SB3 will add '.zip' if needed.
         """
-        raise NotImplementedError
+        if self.model is None:
+            raise ValueError("PPO model is not initialized. Nothing to save.")
 
-    def load(self, path: str):
-        """Load agent weights from a checkpoint file.
+        save_path = Path(path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(save_path))
+
+    def load(self, path: str, env=None):
+        """
+        Load a saved SB3 PPO model.
 
         Args:
-            path (str): File path (relative) to the checkpoint to load.
+            path (str): Path to checkpoint.
+            env: Optional env to attach after loading.
+
+        Returns:
+            PPOAgent: self
         """
-        raise NotImplementedError
+        if env is not None:
+            self.env = env
+
+        self.model = PPO.load(path, env=self.env, device=self.device)
+        return self
