@@ -1,6 +1,22 @@
 """
 Evaluation metrics for real-time ad bidding agents.
+"""
 
+from typing import List, Tuple, Dict
+
+
+Step = Tuple  # (obs, action, reward, info)
+
+
+def _extract_info(step: Step) -> Dict:
+    """Helper: get info dict (handle vec_env case)."""
+    info = step[3]
+    if isinstance(info, list):  # DummyVecEnv
+        info = info[0]
+    return info
+
+
+"""
 All metrics are computed from a trajectory — a sequence of (observation,
 action, reward, info) tuples collected by rolling out an agent in the
 AuctionNetGymEnv. The info dict from each step contains the raw auction
@@ -15,7 +31,28 @@ Core metrics:
 """
 
 
-def compute_roi(trajectory: list) -> float:
+
+
+
+# =========================
+# Core metrics
+# =========================
+
+def compute_total_value(trajectory: List[Step]) -> float:
+    return sum(_extract_info(step)["conversion_value"] for step in trajectory)
+
+
+
+def compute_total_cost(trajectory: List[Step]) -> float:
+    return sum(_extract_info(step)["cost"] for step in trajectory)
+
+
+
+def compute_profit(trajectory: List[Step]) -> float:
+    return compute_total_value(trajectory) - compute_total_cost(trajectory)
+
+
+def compute_roi(trajectory: List[Step]) -> float:
     """Compute Return on Investment (ROI) over a full episode trajectory.
 
     ROI measures the capital efficiency of the bidding strategy:
@@ -35,10 +72,15 @@ def compute_roi(trajectory: list) -> float:
         roi (float): Total conversion value divided by total spend.
             Returns 0.0 if total spend is zero (no auctions won).
     """
-    raise NotImplementedError
+    total_value = compute_total_value(trajectory)
+    total_cost = compute_total_cost(trajectory)
+
+    if total_cost == 0:
+        return 0.0
+    return total_value / total_cost
 
 
-def compute_budget_utilization(trajectory: list) -> float:
+def compute_budget_utilization(trajectory: List[Step]) -> float:
     """Compute budget utilization over a full episode trajectory.
 
     Budget utilization measures how effectively the agent paces its spend:
@@ -59,10 +101,22 @@ def compute_budget_utilization(trajectory: list) -> float:
     Returns:
         utilization (float): Fraction of budget spent, in [0, 1].
     """
-    raise NotImplementedError
+    total_cost = compute_total_cost(trajectory)
 
+    first_info = _extract_info(trajectory[0])
+    last_info = _extract_info(trajectory[-1])
 
-def compute_win_rate(trajectory: list) -> float:
+    remaining_budget_end = last_info["remaining_budget"]
+
+    # Infer initial budget
+    initial_budget = remaining_budget_end + total_cost
+
+    if initial_budget <= 0:
+        return 0.0
+
+    return total_cost / initial_budget
+
+def compute_win_rate(trajectory: List[Step]) -> float:
     """Compute auction win rate over a full episode trajectory.
 
     Win rate is the fraction of auctions entered where the agent submitted
@@ -82,4 +136,35 @@ def compute_win_rate(trajectory: list) -> float:
     Returns:
         win_rate (float): Fraction of auctions won, in [0, 1].
     """
-    raise NotImplementedError
+   
+    wins = sum(1 for step in trajectory if _extract_info(step)["won"])
+    total_steps = len(trajectory)
+
+    if total_steps == 0:
+        return 0.0
+
+    return wins / total_steps
+
+
+def compute_avg_cost(trajectory: List[Step]) -> float:
+    costs = [_extract_info(step)["cost"] for step in trajectory]
+    return sum(costs) / len(costs) if costs else 0.0
+
+
+def compute_avg_value(trajectory: List[Step]) -> float:
+    values = [_extract_info(step)["conversion_value"] for step in trajectory]
+    return sum(values) / len(values) if values else 0.0
+
+
+
+def compute_all_metrics(trajectory: List[Step]) -> dict:
+    return {
+        "total_value": compute_total_value(trajectory),
+        "total_cost": compute_total_cost(trajectory),
+        "profit": compute_profit(trajectory),
+        "roi": compute_roi(trajectory),
+        "budget_utilization": compute_budget_utilization(trajectory),
+        "win_rate": compute_win_rate(trajectory),
+        "avg_cost": compute_avg_cost(trajectory),
+        "avg_value": compute_avg_value(trajectory),
+    }

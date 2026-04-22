@@ -7,6 +7,7 @@ environment:
   auctionnet_path: ../AuctionNet
   pv_num: 500000
   min_remaining_budget: 0.1
+  reward_lambda_cost: 1.0 # Cost penalty coefficient for reward shaping
 
 agent:
   algorithm: ppo

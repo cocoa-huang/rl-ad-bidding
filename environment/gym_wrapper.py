@@ -185,6 +185,7 @@ class AuctionNetGymEnv(gymnasium.Env):
         self.max_bid_multiplier = float(config["max_bid_multiplier"])
         self.pv_num = int(config["pv_num"])
         self.min_remaining_budget = float(config["min_remaining_budget"])
+        self.reward_lambda_cost = float(config.get("reward_lambda_cost", 1.0))
 
         # --- import AuctionNet modules (after path is set) ---
         from simul_bidding_env.Environment.BiddingEnv import BiddingEnv
@@ -372,7 +373,7 @@ class AuctionNetGymEnv(gymnasium.Env):
         # --- compute reward: conversion value - cost (player only) ---
         player_conversion_value = float(conversion_action_pit[p].sum())
         player_cost = float(real_cost[p])
-        reward = player_conversion_value - player_cost
+        reward = player_conversion_value - self.reward_lambda_cost * player_cost
 
         # --- track least winning cost and win rate ---
         self._last_lwc = float(lwc_pit.mean())  # average market clearing price

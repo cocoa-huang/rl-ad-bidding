@@ -1,0 +1,44 @@
+environment:
+  budget: 2900
+  num_ticks: 48
+  num_episode: 48
+  player_index: 0
+  max_bid_multiplier: 150.0
+  auctionnet_path: ../AuctionNet
+
+  # Local debug: drastically reduced from 500000
+  pv_num: 5000
+  min_remaining_budget: 0.1
+  reward_lambda_cost: 0.1 # Cost penalty coefficient for reward shaping
+
+
+agent:
+  algorithm: ppo
+  policy: MlpPolicy
+  lr: 3e-4
+  gamma: 0.99
+  batch_size: 64
+
+  # SB3 PPO defaults / sensible small-run values
+  n_steps: 256
+  n_epochs: 10
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.0
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  verbose: 1
+  device: auto
+
+training:
+  # Keeping short for local smoke tests
+  n_episodes: 20
+  eval_interval: 5
+  save_interval: 10
+
+  total_timesteps: 5000
+
+logging:
+  use_wandb: false
+  project_name: rl-ad-bidding
+  run_name: local_debug
