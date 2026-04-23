@@ -375,7 +375,9 @@ class AuctionNetGymEnv(gymnasium.Env):
         # --- compute reward: conversion value - cost (player only) ---
         player_conversion_value = float(conversion_action_pit[p].sum())
         player_cost = float(real_cost[p])
-        reward = player_conversion_value - self.reward_lambda_cost * player_cost
+        # We multiply the conversion value by 100 to simulate a CPA (Cost Per Action) goal of $100.
+        # Otherwise, the agent thinks a conversion is only worth $1, but it costs $100 to win the auction.
+        reward = (100.0 * player_conversion_value) - self.reward_lambda_cost * player_cost
 
         # --- track least winning cost and win rate ---
         self._last_lwc = float(lwc_pit.mean())  # average market clearing price
