@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=rl-ad-bidding
 #SBATCH --account=torch_pr_932_general
-#SBATCH --partition=cpu_short
+#SBATCH --partition=cs
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=32GB
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=32G
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/%j_%x.out
 #SBATCH --error=logs/%j_%x.err
