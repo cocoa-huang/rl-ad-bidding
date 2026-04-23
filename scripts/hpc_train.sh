@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=rl-ad-bidding
-#SBATCH --account=TODO_run_sacctmgr_show_associations_user=zh2312
+#SBATCH --account=torch_pr_932_general
 #SBATCH --partition=c12m85-a100-1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
