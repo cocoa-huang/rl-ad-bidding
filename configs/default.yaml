@@ -38,4 +38,5 @@ training:
 logging:
   use_wandb: true
   project_name: rl-ad-bidding
-  run_name: baseline
+  entity: models-new-york-university8717
+  run_name: eric-value-utilization-bonus

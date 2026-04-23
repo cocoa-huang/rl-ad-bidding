@@ -66,6 +66,7 @@ def main():
         import wandb
         wandb.init(
             project=logging_config.get("project_name", "rl-ad-bidding"),
+            entity=logging_config.get("entity", None),
             name=run_name,
             config={**env_config, **agent_config, "total_timesteps": total_timesteps},
             sync_tensorboard=True,  # streams SB3's TensorBoard logs into W&B

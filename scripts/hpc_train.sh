@@ -22,6 +22,7 @@
 #   source /scratch/zh2312/miniforge3/etc/profile.d/conda.sh
 #   conda create -n rl-ad-bidding python=3.9.12 -y
 #   conda activate rl-ad-bidding
+#   git clone https://github.com/alimama-tech/AuctionNet.git /scratch/zh2312/AuctionNet
 #   cd /scratch/zh2312/rl-ad-bidding && git pull && pip install -r requirements.txt
 #
 # Usage:
