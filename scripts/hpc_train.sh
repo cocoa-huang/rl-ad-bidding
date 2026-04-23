@@ -15,9 +15,14 @@
 # ---------------------------------------------------------------
 # NYU Torch HPC — Training job for rl-ad-bidding
 #
-# One-time setup required before first run — see README or ask Eric:
-#   /scratch/zh2312/rl-ad-bidding/overlay-15GB-500K.ext3  (overlay with conda env)
-#   /share/apps/images/cuda12.3.2-cudnn9.0.0-ubuntu-22.04.4.sif  (Singularity image)
+# One-time setup (run once on login node, no Singularity needed):
+#   cd /scratch/zh2312
+#   wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+#   sh Miniforge3-Linux-x86_64.sh -b -p /scratch/zh2312/miniforge3
+#   source /scratch/zh2312/miniforge3/etc/profile.d/conda.sh
+#   conda create -n rl-ad-bidding python=3.9.12 -y
+#   conda activate rl-ad-bidding
+#   cd /scratch/zh2312/rl-ad-bidding && pip install -r requirements.txt
 #
 # Usage:
 #   sbatch scripts/hpc_train.sh
@@ -26,6 +31,8 @@
 
 set -euo pipefail
 
+REPO=/scratch/zh2312/rl-ad-bidding
+
 echo "Job ID:     $SLURM_JOB_ID"
 echo "Node:       $SLURMD_NODENAME"
 echo "Started at: $(date)"
@@ -33,20 +40,12 @@ echo "Started at: $(date)"
 CONFIG=${1:-configs/default.yaml}
 echo "Config:     $CONFIG"
 
-mkdir -p logs saved_models
+mkdir -p $REPO/logs $REPO/saved_models
 
-OVERLAY=/scratch/zh2312/rl-ad-bidding/overlay-15GB-500K.ext3
-SIF=/share/apps/images/cuda12.3.2-cudnn9.0.0-ubuntu-22.04.4.sif
-WORKDIR=/scratch/zh2312/rl-ad-bidding
+source /scratch/zh2312/miniforge3/etc/profile.d/conda.sh
+conda activate rl-ad-bidding
 
-singularity exec --bind /scratch \
-  --overlay ${OVERLAY}:ro \
-  ${SIF} \
-  /bin/bash -c "
-    source /ext3/env.sh
-    conda activate rl-ad-bidding
-    cd ${WORKDIR}
-    python scripts/train.py --config ${CONFIG} --run-name slurm_\${SLURM_JOB_ID}
-  "
+cd $REPO
+python scripts/train.py --config ${CONFIG} --run-name slurm_${SLURM_JOB_ID}
 
 echo "Finished at: $(date)"
