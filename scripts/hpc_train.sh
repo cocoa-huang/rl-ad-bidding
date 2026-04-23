@@ -1,13 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=rl-ad-bidding
 #SBATCH --account=torch_pr_932_general
-#SBATCH --partition=c12m85-a100-1
+#SBATCH --partition=cpu_short
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32GB
 #SBATCH --time=12:00:00
-#SBATCH --gres=gpu:a100:1
 #SBATCH --output=logs/%j_%x.out
 #SBATCH --error=logs/%j_%x.err
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -40,7 +39,7 @@ OVERLAY=/scratch/zh2312/rl-ad-bidding/overlay-15GB-500K.ext3
 SIF=/share/apps/images/cuda12.3.2-cudnn9.0.0-ubuntu-22.04.4.sif
 WORKDIR=/scratch/zh2312/rl-ad-bidding
 
-singularity exec --bind /scratch --nv \
+singularity exec --bind /scratch \
   --overlay ${OVERLAY}:ro \
   ${SIF} \
   /bin/bash -c "
