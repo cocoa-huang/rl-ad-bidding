@@ -4,8 +4,8 @@ environment:
   num_episode: 48           # episodes available in the dataset (cycles 0-47)
   player_index: 0
   max_bid_multiplier: 150.0   # competitors bid cpa * pValues, cpa range is 60-130
-  auctionnet_path: ../AuctionNet
-  pv_num: 500000
+  auctionnet_path: ./AuctionNet
+  pv_num: 50000
   min_remaining_budget: 0.1
   reward_lambda_cost: 1.0 # Cost penalty coefficient for reward shaping
 
@@ -14,10 +14,11 @@ agent:
   lr: 3e-4
   gamma: 0.99
   batch_size: 64
+  tensorboard_log: "./logs/tensorboard"
 
 training:
-  n_episodes: 1000
-  eval_interval: 100
+  n_episodes: 20000
+  eval_interval: 200
   save_interval: 500
 
 logging:
