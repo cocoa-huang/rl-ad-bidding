@@ -186,6 +186,7 @@ class AuctionNetGymEnv(gymnasium.Env):
         self.pv_num = int(config["pv_num"])
         self.min_remaining_budget = float(config["min_remaining_budget"])
         self.reward_lambda_cost = float(config.get("reward_lambda_cost", 1.0))
+        self.reward_alpha_utilization = float(config.get("reward_alpha_utilization", 0.0))
 
         # --- import AuctionNet modules (after path is set) ---
         from simul_bidding_env.Environment.BiddingEnv import BiddingEnv
@@ -370,7 +371,9 @@ class AuctionNetGymEnv(gymnasium.Env):
             if agent is not None and i != p:
                 agent.remaining_budget -= real_cost[i]
 
-        # --- compute reward: conversion value - cost (player only) ---
+        # --- compute reward ---
+        # Per-step: conversion value won minus optional cost penalty.
+        # Terminal: optional budget utilization bonus to encourage full spend.
         player_conversion_value = float(conversion_action_pit[p].sum())
         player_cost = float(real_cost[p])
         reward = player_conversion_value - self.reward_lambda_cost * player_cost
@@ -403,6 +406,9 @@ class AuctionNetGymEnv(gymnasium.Env):
         )
         truncated = False
 
+        if terminated and self.reward_alpha_utilization > 0.0:
+            reward += self.reward_alpha_utilization * (self._total_spend / self.budget)
+
         # --- fetch next tick PV data for observation (if episode continues) ---
         if not terminated:
             self._current_pv_values = self._pv_gen.pv_values[self._tick]
@@ -412,6 +418,7 @@ class AuctionNetGymEnv(gymnasium.Env):
 
         info = {
             "won": n_won,
+            "total_pvs": n_total,
             "cost": player_cost,
             "conversion_value": player_conversion_value,
             "tick": self._tick,

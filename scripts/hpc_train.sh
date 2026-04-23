@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=rl-ad-bidding
-#SBATCH --partition=gpu
+#SBATCH --account=TODO_run_sacctmgr_show_associations_user=zh2312
+#SBATCH --partition=c12m85-a100-1
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -10,41 +11,43 @@
 #SBATCH --output=logs/%j_%x.out
 #SBATCH --error=logs/%j_%x.err
 #SBATCH --mail-type=BEGIN,END,FAIL
-#SBATCH --mail-user=YOUR_NETID@nyu.edu
+#SBATCH --mail-user=zh2312@nyu.edu
 
 # ---------------------------------------------------------------
-# NYU Greene HPC — Training job for rl-ad-bidding
-# Usage: sbatch scripts/hpc_train.sh [--config configs/default.yaml]
+# NYU Torch HPC — Training job for rl-ad-bidding
+#
+# One-time setup required before first run — see README or ask Eric:
+#   /scratch/zh2312/rl-ad-bidding/overlay-15GB-500K.ext3  (overlay with conda env)
+#   /share/apps/images/cuda12.3.2-cudnn9.0.0-ubuntu-22.04.4.sif  (Singularity image)
+#
+# Usage:
+#   sbatch scripts/hpc_train.sh
+#   sbatch scripts/hpc_train.sh configs/my_experiment.yaml
 # ---------------------------------------------------------------
 
 set -euo pipefail
 
-echo "Job ID:       $SLURM_JOB_ID"
-echo "Node:         $SLURMD_NODENAME"
-echo "Started at:   $(date)"
+echo "Job ID:     $SLURM_JOB_ID"
+echo "Node:       $SLURMD_NODENAME"
+echo "Started at: $(date)"
 
-# --- Environment setup ---
-module purge
-module load anaconda3/2023.09
-
-conda activate rl-ad-bidding  # replace with your actual env name
-
-# Verify GPU is visible
-nvidia-smi
-
-# --- Working directory ---
-cd $SLURM_SUBMIT_DIR
-
-# --- Config (override via sbatch --export or positional arg) ---
 CONFIG=${1:-configs/default.yaml}
-echo "Using config: $CONFIG"
+echo "Config:     $CONFIG"
 
-# --- Create log directory if it doesn't exist ---
 mkdir -p logs saved_models
 
-# --- Launch training ---
-python scripts/train.py \
-    --config "$CONFIG" \
-    --run-name "slurm_${SLURM_JOB_ID}"
+OVERLAY=/scratch/zh2312/rl-ad-bidding/overlay-15GB-500K.ext3
+SIF=/share/apps/images/cuda12.3.2-cudnn9.0.0-ubuntu-22.04.4.sif
+WORKDIR=/scratch/zh2312/rl-ad-bidding
+
+singularity exec --bind /scratch --nv \
+  --overlay ${OVERLAY}:ro \
+  ${SIF} \
+  /bin/bash -c "
+    source /ext3/env.sh
+    conda activate rl-ad-bidding
+    cd ${WORKDIR}
+    python scripts/train.py --config ${CONFIG} --run-name slurm_\${SLURM_JOB_ID}
+  "
 
 echo "Finished at: $(date)"
