@@ -30,8 +30,10 @@ agent:
 
 training:
   n_episodes: 1000
+  n_envs: 8                 # SubprocVecEnv workers; n_steps=384 is tuned for this value
   eval_interval: 100
   save_interval: 500
+  early_stop_patience: 10   # evals without improvement before halting
 
 logging:
   use_wandb: true

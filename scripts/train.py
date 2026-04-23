@@ -4,9 +4,13 @@ import sys
 from pathlib import Path
 
 import yaml
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import (
+    CheckpointCallback,
+    EvalCallback,
+    StopTrainingOnNoModelImprovement,
+)
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -68,7 +72,8 @@ def main():
         )
 
     # --- Environments ---
-    vec_env = DummyVecEnv([make_env(env_config)])
+    n_envs = int(training_config.get("n_envs", 8))
+    vec_env = SubprocVecEnv([make_env(env_config) for _ in range(n_envs)])
     eval_env = DummyVecEnv([make_env(env_config)])
 
     # --- Agent ---
@@ -87,10 +92,17 @@ def main():
         env=vec_env,
     )
 
+    # --- Warm-start: resume from best checkpoint if available ---
+    best_model_path = PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best" / "best_model.zip"
+    if best_model_path.exists():
+        print(f"Resuming from checkpoint: {best_model_path}")
+        agent.load(str(best_model_path), env=vec_env)
+
     # --- Callbacks ---
     num_ticks = int(env_config.get("num_ticks", 48))
     save_interval = int(training_config.get("save_interval", 500))
     eval_interval = int(training_config.get("eval_interval", 100))
+    early_stop_patience = int(training_config.get("early_stop_patience", 10))
 
     checkpoint_cb = CheckpointCallback(
         save_freq=max(save_interval * num_ticks, 1),
@@ -100,10 +112,18 @@ def main():
         save_vecnormalize=False,
     )
 
+    early_stop_cb = StopTrainingOnNoModelImprovement(
+        max_no_improvement_evals=early_stop_patience,
+        min_evals=early_stop_patience,
+        verbose=1,
+    )
+
     eval_cb = EvalCallback(
         eval_env,
+        best_model_save_path=str(PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best"),
         eval_freq=max(eval_interval * num_ticks, 1),
         n_eval_episodes=5,
+        callback_after_eval=early_stop_cb,
         deterministic=True,
         verbose=1,
     )
