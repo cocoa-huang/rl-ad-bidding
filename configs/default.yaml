@@ -38,5 +38,5 @@ training:
 logging:
   use_wandb: true
   project_name: rl-ad-bidding
-  entity: models-new-york-university8717
+  entity: sp9019-nyu
   run_name: eric-value-utilization-bonus
