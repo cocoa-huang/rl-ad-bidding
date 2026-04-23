@@ -9,13 +9,24 @@ environment:
   auctionnet_path: ../AuctionNet
   pv_num: 500000
   min_remaining_budget: 0.1
-  reward_lambda_cost: 1.0 # Cost penalty coefficient for reward shaping
+  reward_lambda_cost: 0.0        # set to 0 — cost penalised implicitly via budget termination
+  reward_alpha_utilization: 50.0 # terminal bonus = alpha * (total_spend / budget); needs tuning
 
 agent:
   algorithm: ppo
+  policy: MlpPolicy
   lr: 3e-4
+  n_steps: 384          # 48 ticks × 8 envs — keeps GAE within complete episodes
+  batch_size: 128
+  n_epochs: 10
   gamma: 0.99
-  batch_size: 64
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01        # exploration bonus; 0.0 causes collapse on [0, 150] action space
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  total_timesteps: 500000
+  device: cpu
 
 training:
   n_episodes: 1000
