@@ -103,7 +103,7 @@ def main():
     )
 
     # Automatically load the best previous model if it exists to warm-start training!
-    best_model_path = PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best.zip"
+    best_model_path = PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best" / "best_model.zip"
     if best_model_path.exists():
         print(f"🔄 Found existing checkpoint at {best_model_path}! Loading to continue training...")
         agent.load(str(best_model_path), env=vec_env)
