@@ -216,8 +216,8 @@ class AuctionNetGymEnv(gymnasium.Env):
             dtype=np.float32,
         )
         self.action_space = Box(
-            low=np.array([0.0], dtype=np.float32),
-            high=np.array([self.max_bid_multiplier], dtype=np.float32),
+            low=np.array([-1.0], dtype=np.float32),
+            high=np.array([1.0], dtype=np.float32),
             dtype=np.float32,
         )
 
@@ -307,7 +307,8 @@ class AuctionNetGymEnv(gymnasium.Env):
             truncated (bool)
             info (dict)
         """
-        alpha = float(np.clip(action, 0.0, self.max_bid_multiplier))
+        action_clipped = float(np.clip(action, -1.0, 1.0))
+        alpha = ((action_clipped + 1.0) / 2.0) * self.max_bid_multiplier
 
         pv_values = self._pv_gen.pv_values[self._tick]         # (n_pv, 48)
         pvalue_sigmas = self._pv_gen.pValueSigmas[self._tick]  # (n_pv, 48)

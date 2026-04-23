@@ -110,7 +110,7 @@ try:
     assert action.dtype in (np.float32, np.float64), f"unexpected dtype {action.dtype}"
     assert lp is None and val is None
     ok()
-    print(f"      action = {action.flatten()[0]:.4f}  (in [0, {env_cfg['max_bid_multiplier']}])")
+    print(f"      action = {action.flatten()[0]:.4f}  (in [-1, 1]; rescaled to [0, {env_cfg['max_bid_multiplier']}] in step())")
 
     step("select_action(obs, deterministic=True) — greedy")
     action_det, _, _ = agent.select_action(obs, deterministic=True)

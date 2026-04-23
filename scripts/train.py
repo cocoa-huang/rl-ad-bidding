@@ -78,11 +78,8 @@ def main():
     eval_env = DummyVecEnv([make_env(env_config)])
 
     # --- Agent ---
-    # squash_output: maps Gaussian output through tanh+rescale so actions always
-    # land in [0, max_bid_multiplier] on init, instead of half being clipped to 0.
     agent_config_train = {
         **agent_config,
-        "policy_kwargs": {"squash_output": True},
         "tensorboard_log": str(PROJECT_ROOT / "logs"),
     }
 

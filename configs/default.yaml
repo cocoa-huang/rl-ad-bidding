@@ -4,8 +4,7 @@ environment:
   num_episode: 48           # episodes available in the dataset (cycles 0-47)
   player_index: 0
   max_bid_multiplier: 150.0   # competitors bid cpa * pValues, cpa range is 60-130
-                              # NOTE: action space [0, 150] is non-symmetric around 0.
-                              # Fix: policy_kwargs={"squash_output": True} in scripts/train.py
+                              # Action space is [-1, 1]; rescaled to [0, max_bid_multiplier] in step()
   auctionnet_path: ../AuctionNet
   pv_num: 500000
   min_remaining_budget: 0.1
