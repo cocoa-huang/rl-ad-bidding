@@ -62,14 +62,20 @@ def main():
 
     # --- W&B (optional — controlled by logging.use_wandb in config) ---
     use_wandb = logging_config.get("use_wandb", False)
+    wandb_callback = None
     if use_wandb:
         import wandb
+        from wandb.integration.sb3 import WandbCallback
         wandb.init(
             project=logging_config.get("project_name", "rl-ad-bidding"),
             entity=logging_config.get("entity", None),
             name=run_name,
             config={**env_config, **agent_config, "total_timesteps": total_timesteps},
-            sync_tensorboard=True,  # streams SB3's TensorBoard logs into W&B
+            sync_tensorboard=True,
+        )
+        wandb_callback = WandbCallback(
+            gradient_save_freq=0,
+            verbose=0,
         )
 
     # --- Environments ---
@@ -132,9 +138,13 @@ def main():
     print(f"W&B:             {use_wandb}")
     print("=" * 60)
 
+    callbacks = [checkpoint_cb, eval_cb]
+    if wandb_callback is not None:
+        callbacks.append(wandb_callback)
+
     agent.update(
         total_timesteps=total_timesteps,
-        callback=[checkpoint_cb, eval_cb],
+        callback=callbacks,
         progress_bar=True,
     )
 

@@ -6,7 +6,7 @@ environment:
   max_bid_multiplier: 150.0   # competitors bid cpa * pValues, cpa range is 60-130
                               # Action space is [-1, 1]; rescaled to [0, max_bid_multiplier] in step()
   auctionnet_path: ../AuctionNet
-  pv_num: 500000
+  pv_num: 50000
   min_remaining_budget: 0.1
   reward_lambda_cost: 0.0        # set to 0 — cost penalised implicitly via budget termination
   reward_alpha_utilization: 50.0 # terminal bonus = alpha * (total_spend / budget); needs tuning
