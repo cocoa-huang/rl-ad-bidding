@@ -185,6 +185,7 @@ class AuctionNetGymEnv(gymnasium.Env):
         self.max_bid_multiplier = float(config["max_bid_multiplier"])
         self.pv_num = int(config["pv_num"])
         self.min_remaining_budget = float(config["min_remaining_budget"])
+        self.reward_value_scale = float(config.get("reward_value_scale", 1.0))
         self.reward_lambda_cost = float(config.get("reward_lambda_cost", 1.0))
         self.reward_alpha_utilization = float(config.get("reward_alpha_utilization", 0.0))
         self.reward_beta_pacing = float(config.get("reward_beta_pacing", 0.0))
@@ -385,9 +386,13 @@ class AuctionNetGymEnv(gymnasium.Env):
         # --- compute reward ---
         player_conversion_value = float(conversion_action_pit[p].sum())  # this tick only
         player_cost = float(real_cost[p])
-        reward = (player_conversion_value
+        # pacing_ratio after this tick: spend_frac / time_frac_elapsed
+        # uses tick+1 so time_frac is never zero (we just completed tick self._tick)
+        _time_frac = (self._tick + 1) / self.num_ticks
+        _pacing_ratio = (self._total_spend / self.budget) / _time_frac
+        reward = (self.reward_value_scale * player_conversion_value
                   - self.reward_lambda_cost * player_cost
-                  + self.reward_beta_pacing * (player_cost / self.budget))
+                  + self.reward_beta_pacing * min(_pacing_ratio, 1.0))
 
         # --- track least winning cost and win rate ---
         self._last_lwc = float(lwc_pit.mean())  # average market clearing price
