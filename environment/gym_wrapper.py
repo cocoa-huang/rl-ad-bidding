@@ -187,6 +187,7 @@ class AuctionNetGymEnv(gymnasium.Env):
         self.min_remaining_budget = float(config["min_remaining_budget"])
         self.reward_lambda_cost = float(config.get("reward_lambda_cost", 1.0))
         self.reward_alpha_utilization = float(config.get("reward_alpha_utilization", 0.0))
+        self.reward_beta_pacing = float(config.get("reward_beta_pacing", 0.0))
 
         # --- import AuctionNet modules (after path is set) ---
         from simul_bidding_env.Environment.BiddingEnv import BiddingEnv
@@ -382,11 +383,11 @@ class AuctionNetGymEnv(gymnasium.Env):
                 agent.remaining_budget -= real_cost[i]
 
         # --- compute reward ---
-        # Per-step: conversion value won minus optional cost penalty.
-        # Terminal: optional budget utilization bonus to encourage full spend.
         player_conversion_value = float(conversion_action_pit[p].sum())  # this tick only
         player_cost = float(real_cost[p])
-        reward = player_conversion_value - self.reward_lambda_cost * player_cost
+        reward = (player_conversion_value
+                  - self.reward_lambda_cost * player_cost
+                  + self.reward_beta_pacing * (player_cost / self.budget))
 
         # --- track least winning cost and win rate ---
         self._last_lwc = float(lwc_pit.mean())  # average market clearing price
@@ -415,9 +416,6 @@ class AuctionNetGymEnv(gymnasium.Env):
             or self._tick >= self.num_ticks
         )
         truncated = False
-
-        if terminated and self.reward_alpha_utilization > 0.0:
-            reward += self.reward_alpha_utilization * (self._total_spend / self.budget)
 
         # --- fetch next tick PV data for observation (if episode continues) ---
         if not terminated:
