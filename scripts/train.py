@@ -36,9 +36,11 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
+_MONITOR_KEYWORDS = ("budget_utilization", "roi", "win_rate")
+
 def make_env(env_config: dict):
     def _init():
-        return Monitor(AuctionNetGymEnv(env_config))
+        return Monitor(AuctionNetGymEnv(env_config), info_keywords=_MONITOR_KEYWORDS)
     return _init
 
 

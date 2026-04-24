@@ -226,6 +226,9 @@ class AuctionNetGymEnv(gymnasium.Env):
         self._episode = 0
         self._remaining_budget = self.budget
         self._total_spend = 0.0
+        self._total_conversion_value = 0.0
+        self._total_won = 0
+        self._total_pvs = 0
         self._last_lwc = 0.0          # least winning cost from previous tick
         self._recent_xi = []          # list of (n_won, n_total) per tick for win rate
         self._current_pv_values = None
@@ -278,6 +281,9 @@ class AuctionNetGymEnv(gymnasium.Env):
         self._tick = 0
         self._remaining_budget = self.budget
         self._total_spend = 0.0
+        self._total_conversion_value = 0.0
+        self._total_won = 0
+        self._total_pvs = 0
         self._last_lwc = 0.0
         self._recent_xi = []
 
@@ -365,9 +371,12 @@ class AuctionNetGymEnv(gymnasium.Env):
             _adjust_over_cost(bids, over_cost_ratio,
                                self._bidding_env.slot_coefficients, winner_pit)
 
-        # --- update budgets ---
+        # --- update budgets and episode accumulators ---
         self._remaining_budget -= real_cost[p]
         self._total_spend += real_cost[p]
+        self._total_conversion_value += float(conversion_action_pit[p].sum())
+        self._total_won += int(xi_pit[p].sum())
+        self._total_pvs += int(xi_pit.shape[1])
         for i, agent in enumerate(self._agents):
             if agent is not None and i != p:
                 agent.remaining_budget -= real_cost[i]
@@ -375,7 +384,7 @@ class AuctionNetGymEnv(gymnasium.Env):
         # --- compute reward ---
         # Per-step: conversion value won minus optional cost penalty.
         # Terminal: optional budget utilization bonus to encourage full spend.
-        player_conversion_value = float(conversion_action_pit[p].sum())
+        player_conversion_value = float(conversion_action_pit[p].sum())  # this tick only
         player_cost = float(real_cost[p])
         reward = player_conversion_value - self.reward_lambda_cost * player_cost
 
@@ -426,6 +435,10 @@ class AuctionNetGymEnv(gymnasium.Env):
             "total_budget": self.budget,
             "remaining_budget": self._remaining_budget,
         }
+        if terminated:
+            info["budget_utilization"] = self._total_spend / self.budget
+            info["roi"] = self._total_conversion_value / max(self._total_spend, 1e-8)
+            info["win_rate"] = self._total_won / max(self._total_pvs, 1)
 
         return self._get_obs(), reward, terminated, truncated, info
 
