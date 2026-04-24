@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import yaml
-from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.monitor import Monitor  # needed for vec_env
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -41,17 +41,19 @@ def main():
         print(f"No checkpoint found at {model_path}.zip")
         sys.exit(1)
 
-    eval_env = DummyVecEnv([lambda: Monitor(AuctionNetGymEnv(env_config))])
+    vec_env = DummyVecEnv([lambda: Monitor(AuctionNetGymEnv(env_config))])
+    raw_env = AuctionNetGymEnv(env_config)
+
     agent = PPOAgent(
-        observation_space=eval_env.observation_space,
-        action_space=eval_env.action_space,
+        observation_space=vec_env.observation_space,
+        action_space=vec_env.action_space,
         config=agent_config,
-        env=eval_env,
+        env=vec_env,
     )
-    agent.load(str(model_path), env=eval_env)
+    agent.load(str(model_path), env=vec_env)
 
     print(f"Evaluating {args.run_name} over {args.n_episodes} episodes...")
-    metrics = agent.evaluate(eval_env, n_episodes=args.n_episodes)
+    metrics = agent.evaluate(raw_env, n_eval_episodes=args.n_episodes)
     print(f"  ROI:                {metrics['roi']:.4f}")
     print(f"  Budget utilization: {metrics['budget_utilization']:.2%}")
     print(f"  Win rate:           {metrics['win_rate']:.2%}")
