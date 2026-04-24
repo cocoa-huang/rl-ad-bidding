@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 from stable_baselines3.common.callbacks import (
+    BaseCallback,
     CheckpointCallback,
     EvalCallback,
     StopTrainingOnNoModelImprovement,
@@ -37,6 +38,21 @@ def load_config(config_path: str) -> dict:
 
 
 _MONITOR_KEYWORDS = ("budget_utilization", "roi", "win_rate")
+
+
+class EpisodeMetricsCallback(BaseCallback):
+    """Forward per-episode custom metrics from Monitor to the SB3 logger (→ W&B)."""
+
+    def _on_step(self) -> bool:
+        for info in self.locals["infos"]:
+            ep = info.get("episode")
+            if ep is None:
+                continue
+            for key in _MONITOR_KEYWORDS:
+                if key in ep:
+                    self.logger.record(f"rollout/{key}", ep[key])
+        return True
+
 
 def make_env(env_config: dict):
     def _init():
@@ -140,7 +156,7 @@ def main():
     print(f"W&B:             {use_wandb}")
     print("=" * 60)
 
-    callbacks = [checkpoint_cb, eval_cb]
+    callbacks = [checkpoint_cb, eval_cb, EpisodeMetricsCallback()]
     if wandb_callback is not None:
         callbacks.append(wandb_callback)
 
