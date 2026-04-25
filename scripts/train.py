@@ -4,9 +4,19 @@ import sys
 from pathlib import Path
 
 import yaml
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback, StopTrainingOnNoModelImprovement, BaseCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
+
+class CustomLoggingCallback(BaseCallback):
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "terminal_observation" in info:
+                self.logger.record("rollout/budget_utilization", info.get("budget_utilization", 0.0))
+                self.logger.record("rollout/roi", info.get("roi", 0.0))
+                self.logger.record("rollout/win_rate", info.get("win_rate", 0.0))
+                self.logger.record("rollout/curriculum_scale", info.get("curriculum_scale", 1.0))
+        return True
 
 # Ensure project root is importable when running:
 # python scripts/train.py
@@ -56,7 +66,8 @@ def load_config(config_path: str) -> dict:
 def make_env(env_config: dict):
     def _init():
         env = AuctionNetGymEnv(env_config)
-        env = Monitor(env)
+        # Pass info_keywords to Monitor so SB3 logs these metrics to TensorBoard/WandB
+        env = Monitor(env, info_keywords=("budget_utilization", "roi", "win_rate", "curriculum_scale"))
         return env
     return _init
 
@@ -94,6 +105,7 @@ def main():
     # Use multiprocessing to utilize Modal's 32 CPU cores
     n_envs = 16
     vec_env = SubprocVecEnv([make_env(env_config) for _ in range(n_envs)])
+    vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
 
     agent = PPOAgent(
         observation_space=vec_env.observation_space,
@@ -104,7 +116,11 @@ def main():
 
     # Automatically load the best previous model if it exists to warm-start training!
     best_model_path = PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best" / "best_model.zip"
+    vecnormalize_path = PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best" / "vecnormalize.pkl"
     if best_model_path.exists():
+        if vecnormalize_path.exists():
+            print(f"🔄 Found existing VecNormalize stats at {vecnormalize_path}! Loading...")
+            vec_env = VecNormalize.load(str(vecnormalize_path), vec_env)
         print(f"🔄 Found existing checkpoint at {best_model_path}! Loading to continue training...")
         agent.load(str(best_model_path), env=vec_env)
     else:
@@ -119,12 +135,14 @@ def main():
         save_path=str(PROJECT_ROOT / "saved_models"),
         name_prefix=f"ppo_{run_name}",
         save_replay_buffer=False,
-        save_vecnormalize=False,
+        save_vecnormalize=True,
     )
 
     # Setup Early Stopping & Evaluation
     eval_freq_steps = max(int(training_config.get("eval_interval", 100)) * num_ticks, 1)
     eval_env = DummyVecEnv([make_env(env_config)])
+    eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0, training=False)
+    n_eval_episodes = int(training_config.get("n_eval_episodes", 20))
     
     stop_train_callback = StopTrainingOnNoModelImprovement(
         max_no_improvement_evals=5, 
@@ -137,6 +155,7 @@ def main():
         best_model_save_path=str(PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best"),
         log_path=str(PROJECT_ROOT / "logs"),
         eval_freq=eval_freq_steps,
+        n_eval_episodes=n_eval_episodes,
         callback_after_eval=stop_train_callback,
         deterministic=True,
         render=False,
@@ -144,7 +163,7 @@ def main():
 
     # Initialize WandB if enabled
     use_wandb = config.get("logging", {}).get("use_wandb", False)
-    callbacks = [checkpoint_callback, eval_callback]
+    callbacks = [checkpoint_callback, eval_callback, CustomLoggingCallback()]
     
     if use_wandb:
         import wandb
@@ -184,6 +203,7 @@ def main():
 
     final_path = PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_final"
     agent.save(str(final_path))
+    vec_env.save(str(PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_final_vecnormalize.pkl"))
 
     print(f"Training complete. Metrics: {metrics}")
     print(f"Final model saved to: {final_path}.zip")

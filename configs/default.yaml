@@ -3,25 +3,35 @@ environment:
   num_ticks: 48             # AuctionNet ticks per episode
   num_episode: 48           # episodes available in the dataset (cycles 0-47)
   player_index: 0
+  min_bid_multiplier: 50.0    # Hard minimum bid to force market participation
   max_bid_multiplier: 150.0   # competitors bid cpa * pValues, cpa range is 60-130
   auctionnet_path: ./AuctionNet
   pv_num: 50000
   min_remaining_budget: 0.1
   reward_lambda_cost: 1.0 # Cost penalty coefficient for reward shaping
+  reward_beta_pacing: 5.0 # Pacing ratio dense reward coefficient
+  curriculum_warmup_episodes: 312 # Adjusted for 16x multiprocessing
+  conversion_value_scale: 100.0 # $ value per conversion event (set 1.0 if already monetary)
 
 agent:
   algorithm: ppo
   lr: 3e-4
   gamma: 0.99
+  ent_coef: 0.05 # Force exploration to prevent local minimum
   batch_size: 64
   tensorboard_log: "./logs/tensorboard"
+  policy_kwargs:
+    net_arch:
+      pi: [256, 256]
+      vf: [256, 256]
 
 training:
   n_episodes: 20000
   eval_interval: 200
+  n_eval_episodes: 20
   save_interval: 500
 
 logging:
   use_wandb: true
   project_name: rl-ad-bidding
-  run_name: baseline
+  run_name: v2_action_masked

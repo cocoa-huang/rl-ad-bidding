@@ -4,12 +4,13 @@ environment:
   num_episode: 48
   player_index: 0
   max_bid_multiplier: 150.0
-  auctionnet_path: ../AuctionNet
+  auctionnet_path: ./AuctionNet
 
   # Local debug: drastically reduced from 500000
   pv_num: 5000
   min_remaining_budget: 0.1
   reward_lambda_cost: 0.1 # Cost penalty coefficient for reward shaping
+  conversion_value_scale: 100.0 # $ value per conversion event (set 1.0 if already monetary)
 
 
 agent:
@@ -34,6 +35,7 @@ training:
   # Keeping short for local smoke tests
   n_episodes: 20
   eval_interval: 5
+  n_eval_episodes: 10
   save_interval: 10
 
   total_timesteps: 5000

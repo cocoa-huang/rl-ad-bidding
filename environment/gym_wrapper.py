@@ -182,10 +182,16 @@ class AuctionNetGymEnv(gymnasium.Env):
         self.num_ticks = int(config["num_ticks"])
         self.num_episode = int(config["num_episode"])
         self.player_index = int(config["player_index"])
+        self.min_bid_multiplier = float(config.get("min_bid_multiplier", 50.0))
         self.max_bid_multiplier = float(config["max_bid_multiplier"])
         self.pv_num = int(config["pv_num"])
         self.min_remaining_budget = float(config["min_remaining_budget"])
         self.reward_lambda_cost = float(config.get("reward_lambda_cost", 1.0))
+        self.reward_beta_pacing = float(config.get("reward_beta_pacing", 0.0))
+        self.curriculum_warmup_episodes = int(config.get("curriculum_warmup_episodes", 0))
+        # Scale conversion events into "conversion value" to match proposal metrics.
+        # If conversion_action_pit is already a monetary value, set this to 1.0.
+        self.conversion_value_scale = float(config.get("conversion_value_scale", 100.0))
 
         # --- import AuctionNet modules (after path is set) ---
         from simul_bidding_env.Environment.BiddingEnv import BiddingEnv
@@ -223,12 +229,14 @@ class AuctionNetGymEnv(gymnasium.Env):
         # --- internal state (initialized in reset) ---
         self._tick = 0
         self._episode = 0
+        self._total_episodes_run = 0
         self._remaining_budget = self.budget
         self._total_spend = 0.0
         self._last_lwc = 0.0          # least winning cost from previous tick
         self._recent_xi = []          # list of (n_won, n_total) per tick for win rate
         self._current_pv_values = None
         self._current_pvalue_sigmas = None
+        self._curriculum_scale = 1.0
 
         # history buffers (same structure as run_test.py)
         self._hist_pvalue_infos = []
@@ -252,6 +260,7 @@ class AuctionNetGymEnv(gymnasium.Env):
 
         # pick episode (random if seeded, else sequential)
         self._episode = int(self.np_random.integers(0, self.num_episode))
+        self._total_episodes_run += 1
 
         # reset AuctionNet internals
         # Note: NeurIPSPvGen.reset() drops all constructor args back to defaults,
@@ -277,6 +286,9 @@ class AuctionNetGymEnv(gymnasium.Env):
         self._tick = 0
         self._remaining_budget = self.budget
         self._total_spend = 0.0
+        self._total_value = 0.0
+        self._total_won = 0
+        self._total_participated = 0
         self._last_lwc = 0.0
         self._recent_xi = []
 
@@ -308,7 +320,10 @@ class AuctionNetGymEnv(gymnasium.Env):
         """
         action_scalar = action.item() if getattr(action, "size", 0) == 1 else action
         action_clipped = np.clip(action_scalar, -1.0, 1.0)
-        alpha = float(((action_clipped + 1.0) / 2.0) * self.max_bid_multiplier)
+        
+        # Map action [-1, 1] to [min_bid_multiplier, max_bid_multiplier]
+        range_size = self.max_bid_multiplier - self.min_bid_multiplier
+        alpha = float(((action_clipped + 1.0) / 2.0) * range_size + self.min_bid_multiplier)
 
         pv_values = self._pv_gen.pv_values[self._tick]         # (n_pv, 48)
         pvalue_sigmas = self._pv_gen.pValueSigmas[self._tick]  # (n_pv, 48)
@@ -372,17 +387,41 @@ class AuctionNetGymEnv(gymnasium.Env):
             if agent is not None and i != p:
                 agent.remaining_budget -= real_cost[i]
 
-        # --- compute reward: conversion value - cost (player only) ---
-        player_conversion_value = float(conversion_action_pit[p].sum())
+        player_conversions = float(conversion_action_pit[p].sum())
         player_cost = float(real_cost[p])
-        # We multiply the conversion value by 100 to simulate a CPA (Cost Per Action) goal of $100.
-        # Otherwise, the agent thinks a conversion is only worth $1, but it costs $100 to win the auction.
-        reward = (100.0 * player_conversion_value) - self.reward_lambda_cost * player_cost
+        player_value = self.conversion_value_scale * player_conversions
+        
+        # --- Curriculum Learning Scale ---
+        if self.curriculum_warmup_episodes > 0:
+            self._curriculum_scale = min(1.0, self._total_episodes_run / self.curriculum_warmup_episodes)
+        else:
+            self._curriculum_scale = 1.0
+
+        curriculum_cost = player_cost * self._curriculum_scale
+
+        # Base reward: raw profit (value - cost) + pacing bonus
+        _time_frac = (self._tick + 1) / self.num_ticks
+        _pacing_ratio = (self._total_spend / self.budget) / _time_frac
+        reward = (player_value 
+                  - self.reward_lambda_cost * curriculum_cost 
+                  + self.reward_beta_pacing * min(_pacing_ratio, 1.0))
+
+        # --- Reward Shaping: Budget Utilization Penalty ---
+        # Re-introduce the end-of-day penalty to stop the 7% hoarding behavior.
+        if self._tick == self.num_ticks - 1:
+            budget_penalty = (self._remaining_budget * 0.5) * self._curriculum_scale
+            reward -= budget_penalty
 
         # --- track least winning cost and win rate ---
         self._last_lwc = float(lwc_pit.mean())  # average market clearing price
         n_won = int(xi_pit[p].sum())
         n_total = int(xi_pit.shape[1])
+        
+        # Accumulate episode-level tracking stats
+        self._total_value += float(player_value)
+        self._total_won += n_won
+        self._total_participated += n_total
+        
         self._recent_xi.append((n_won, n_total))
         if len(self._recent_xi) > 3:
             self._recent_xi.pop(0)
@@ -414,13 +453,25 @@ class AuctionNetGymEnv(gymnasium.Env):
         else:
             self._current_pv_values = pv_values   # reuse last tick's values
 
+        # Calculate final episode metrics for logging
+        budget_utilization = self._total_spend / self.budget
+        roi = (self._total_value - self._total_spend) / (self._total_spend + 1e-6)
+        win_rate = self._total_won / (self._total_participated + 1e-6)
+
         info = {
-            "won": n_won,
+            "auctions_won": n_won,
+            "auctions_participated": n_total,
             "cost": player_cost,
-            "conversion_value": player_conversion_value,
+            "conversion_value": float(player_value),
+            "conversions": float(player_conversions),
             "tick": self._tick,
             "total_budget": self.budget,
             "remaining_budget": self._remaining_budget,
+            # Custom logging metrics specifically for TensorBoard / WandB
+            "budget_utilization": float(budget_utilization),
+            "roi": float(roi),
+            "win_rate": float(win_rate),
+            "curriculum_scale": float(self._curriculum_scale),
         }
 
         return self._get_obs(), reward, terminated, truncated, info

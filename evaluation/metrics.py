@@ -137,13 +137,11 @@ def compute_win_rate(trajectory: List[Step]) -> float:
         win_rate (float): Fraction of auctions won, in [0, 1].
     """
    
-    wins = sum(1 for step in trajectory if _extract_info(step)["won"])
-    total_steps = len(trajectory)
-
-    if total_steps == 0:
+    wins = sum(float(_extract_info(step).get("auctions_won", 0.0)) for step in trajectory)
+    participated = sum(float(_extract_info(step).get("auctions_participated", 0.0)) for step in trajectory)
+    if participated <= 0:
         return 0.0
-
-    return wins / total_steps
+    return wins / participated
 
 
 def compute_avg_cost(trajectory: List[Step]) -> float:
