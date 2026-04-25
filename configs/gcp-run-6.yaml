@@ -1,0 +1,42 @@
+environment:
+  budget: 2900
+  num_ticks: 48
+  num_episode: 48
+  player_index: 0
+  max_bid_multiplier: 150.0
+  auctionnet_path: ../AuctionNet
+  pv_num: 50000
+  min_remaining_budget: 0.1
+  reward_value_scale: 100.0     # unchanged from gcp-run-5
+  reward_lambda_cost: 1.0       # unchanged from gcp-run-5
+  reward_alpha_utilization: 0.0 # deprecated
+  reward_beta_pacing: 3.0       # unchanged from gcp-run-5
+
+agent:
+  algorithm: ppo
+  policy: MlpPolicy
+  lr: 3e-4
+  n_steps: 4096        # was 384 — 32K env steps/update (~680 ep) to escape advantage noise floor
+  batch_size: 64       # was 128 — more grad steps per epoch given the larger rollout
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.0        # was 0.01 — entropy bonus was pinning policy std at init
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  total_timesteps: 1000000
+  device: cpu
+
+training:
+  n_episodes: 1000
+  n_envs: 8            # matched to e2-standard-8 vCPU count; do not oversubscribe
+  eval_interval: 100
+  save_interval: 500
+  early_stop_patience: 10
+
+logging:
+  use_wandb: true
+  project_name: rl-ad-bidding
+  entity: sp9019-nyu
+  run_name: gcp-run-6
