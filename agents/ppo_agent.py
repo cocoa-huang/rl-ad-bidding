@@ -257,7 +257,11 @@ class PPOAgent:
         if env is not None:
             self.env = env
 
-        vecnorm_path = str(Path(path)) + "_vecnormalize.pkl"
+        # Strip .zip so the sidecar path is consistent with save() regardless of
+        # whether the caller passed "best_model" or "best_model.zip".
+        p = Path(path)
+        base_path = str(p.with_suffix("")) if p.suffix == ".zip" else str(p)
+        vecnorm_path = base_path + "_vecnormalize.pkl"
         if isinstance(self.env, VecNormalize) and Path(vecnorm_path).exists():
             self.env = VecNormalize.load(vecnorm_path, self.env.venv)
             self.env.training = False

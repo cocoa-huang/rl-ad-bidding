@@ -1,0 +1,84 @@
+# gcp-run-8 — stabilised training on the budget-binding regime.
+#
+# Addresses three root causes identified from gcp-run-7's W&B logs:
+#
+#   1. Flat value loss (~1600 throughout, never decreasing)
+#      Root cause: VecNormalize was wired into save/load but never instantiated
+#      in train.py. The critic was fitting raw dollar-scale targets (variance ~1600²)
+#      instead of unit-normalised targets. Fix: norm_reward: true.
+#
+#   2. Premature policy convergence (PG loss → 0 at step 300K, eval oscillating 182–476)
+#      Root cause: ent_coef=0.0 left no mechanism to escape the local optimum the
+#      policy committed to early. Fix: ent_coef: 0.01 — small enough that std won't be
+#      pinned at init (that required ent_coef=0.01 AND no gradient, which is gcp-run-5's
+#      condition; we have a real gradient here), large enough to prevent lock-in.
+#
+#   3. Policy network capacity (SB3 default [64,64] for a 48-tick pacing problem)
+#      Root cause: the value function needs to track budget_frac × time_frac × pacing_ratio
+#      interactions across 48 ticks. [64,64] is insufficient. Fix: [256,256] for both
+#      pi and vf — same as Sahil's v3_dense_rewards, the only structural choice in his
+#      run that was independently justified.
+#
+# Unchanged from gcp-run-7:
+#   - budget=150 (validated binding, util jumped from 5% → 54%)
+#   - reward formula (100*value - cost + 3*min(pacing_ratio,1.0)) — peaked at 476 vs
+#     fixed-α=100 ceiling of 317; formula has headroom, don't change it
+#   - n_steps=4096, batch_size=64, n_epochs=10, gamma=0.99, gae_lambda=0.95
+#   - n_envs=8 (matched to e2-standard-8 vCPUs)
+#
+# NOT taken from Sahil's v3_dense_rewards:
+#   - Curriculum learning: his agent crashed to ep_rew_mean=-1000 once curriculum
+#     reached full scale. At budget=150 the gradient already exists; curriculum delays
+#     exposure to the real problem.
+#   - min_bid_multiplier=80: prevents learning conservative pacing when budget is low.
+#   - ent_coef=0.05: too aggressive; his policy never stabilised.
+#   - budget=2900: structurally unlearnable (~5% util ceiling at player_index=0).
+
+environment:
+  budget: 150                   # binding constraint — validated in gcp-run-7
+  num_ticks: 48
+  num_episode: 48
+  player_index: 0
+  max_bid_multiplier: 150.0
+  auctionnet_path: ../AuctionNet
+  pv_num: 50000
+  min_remaining_budget: 0.1
+  reward_value_scale: 100.0     # CPA for player_index=0
+  reward_lambda_cost: 1.0
+  reward_alpha_utilization: 0.0
+  reward_beta_pacing: 3.0
+
+agent:
+  algorithm: ppo
+  policy: MlpPolicy
+  lr: 1e-4              # was 3e-4 — reduced to prevent overshooting on high-variance rewards
+  n_steps: 4096
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01        # was 0.0 — prevents premature convergence without pinning std at init
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  total_timesteps: 2000000      # was 1M — rollout trend was still positive at step 786K
+  device: cpu
+  policy_kwargs:
+    net_arch:
+      pi: [256, 256]    # was SB3 default [64,64]
+      vf: [256, 256]
+
+training:
+  n_episodes: 1000
+  n_envs: 8
+  eval_interval: 100
+  n_eval_episodes: 20           # was 5 — budget=150 has high per-episode variance; 20 gives stable signal
+  save_interval: 500
+  early_stop_patience: 10
+  norm_reward: true             # enables VecNormalize with norm_reward=True — fixes flat value loss
+
+logging:
+  use_wandb: true
+  project_name: rl-ad-bidding
+  entity: sp9019-nyu
+  run_name: gcp-run-8

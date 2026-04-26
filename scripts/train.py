@@ -6,12 +6,13 @@ from pathlib import Path
 import yaml
 from stable_baselines3.common.callbacks import (
     BaseCallback,
+    CallbackList,
     CheckpointCallback,
     EvalCallback,
     StopTrainingOnNoModelImprovement,
 )
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -38,6 +39,30 @@ def load_config(config_path: str) -> dict:
 
 
 _MONITOR_KEYWORDS = ("budget_utilization", "roi", "win_rate")
+
+
+class BestModelVecNormalizeCallback(BaseCallback):
+    """Saves VecNormalize running stats alongside best_model.zip after every eval.
+
+    EvalCallback calls model.save() directly and never writes the VecNormalize
+    sidecar. Without this callback, warm-starts and post-hoc evaluation load the
+    policy into a fresh (mean=0, std=1) normalizer — observations look completely
+    different from training and the policy behaves unpredictably.
+
+    Runs as callback_after_eval so it fires at eval frequency (~200 times over 2M
+    steps), not on every environment step. Stats are written after every eval;
+    if no new best was found, the file is simply overwritten with the current
+    running stats, which are within one eval interval of the true best-model stats.
+    """
+
+    def __init__(self, vec_env: VecNormalize, save_path: str):
+        super().__init__()
+        self._vec_env = vec_env
+        self._save_path = save_path
+
+    def _on_step(self) -> bool:
+        self._vec_env.save(os.path.join(self._save_path, "best_model_vecnormalize.pkl"))
+        return True
 
 
 class EpisodeMetricsCallback(BaseCallback):
@@ -101,6 +126,17 @@ def main():
     vec_env = SubprocVecEnv([make_env(env_config) for _ in range(n_envs)])
     eval_env = DummyVecEnv([make_env(env_config)])
 
+    # Reward normalization: stabilises the value function by keeping targets
+    # at unit variance regardless of raw reward scale. Controlled per-config so
+    # old runs can be reproduced without normalization.
+    norm_reward = bool(training_config.get("norm_reward", False))
+    if norm_reward:
+        vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+        # eval env: keep obs normalisation in sync but never normalise rewards —
+        # EvalCallback reports mean reward in original units so comparisons stay valid.
+        eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False,
+                                training=False, clip_obs=10.0)
+
     # --- Agent ---
     agent_config_train = {
         **agent_config,
@@ -119,6 +155,12 @@ def main():
     if best_model_path.exists():
         print(f"Resuming from checkpoint: {best_model_path}")
         agent.load(str(best_model_path), env=vec_env)
+        if norm_reward and isinstance(agent.env, VecNormalize):
+            # load() sets training=False/norm_reward=False for inference; flip back
+            # to training mode so running stats keep updating and rewards stay normalised.
+            agent.env.training = True
+            agent.env.norm_reward = True
+            vec_env = agent.env  # keep outer reference in sync with the loaded wrapper
 
     # --- Callbacks ---
     num_ticks = int(env_config.get("num_ticks", 48))
@@ -131,7 +173,7 @@ def main():
         save_path=str(PROJECT_ROOT / "saved_models"),
         name_prefix=f"ppo_{run_name}",
         save_replay_buffer=False,
-        save_vecnormalize=False,
+        save_vecnormalize=norm_reward,
     )
 
     early_stop_cb = StopTrainingOnNoModelImprovement(
@@ -140,12 +182,23 @@ def main():
         verbose=1,
     )
 
+    best_model_dir = str(PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best")
+    if norm_reward:
+        # Chain: early stopping + VecNormalize sidecar save on every eval.
+        after_eval_cb = CallbackList([
+            early_stop_cb,
+            BestModelVecNormalizeCallback(vec_env, best_model_dir),
+        ])
+    else:
+        after_eval_cb = early_stop_cb
+
+    n_eval_episodes = int(training_config.get("n_eval_episodes", 5))
     eval_cb = EvalCallback(
         eval_env,
-        best_model_save_path=str(PROJECT_ROOT / "saved_models" / f"ppo_{run_name}_best"),
+        best_model_save_path=best_model_dir,
         eval_freq=max(eval_interval * num_ticks, 1),
-        n_eval_episodes=5,
-        callback_after_eval=early_stop_cb,
+        n_eval_episodes=n_eval_episodes,
+        callback_after_eval=after_eval_cb,
         deterministic=True,
         verbose=1,
     )
