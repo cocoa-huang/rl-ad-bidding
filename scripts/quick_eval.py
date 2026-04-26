@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 from stable_baselines3.common.monitor import Monitor  # needed for vec_env
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -112,6 +112,15 @@ def main():
         sys.exit(1)
 
     vec_env = DummyVecEnv([lambda: Monitor(AuctionNetGymEnv(env_config))])
+    vecnorm_path = model_path.with_name("best_model_vecnormalize.pkl")
+    if vecnorm_path.exists():
+        vec_env = VecNormalize.load(str(vecnorm_path), vec_env)
+        vec_env.training = False
+        vec_env.norm_reward = False
+        print(f"Loaded VecNormalize stats: {vecnorm_path}")
+    elif config.get("training", {}).get("norm_reward", False):
+        print(f"WARNING: expected VecNormalize stats but did not find {vecnorm_path}")
+
     raw_env = AuctionNetGymEnv(env_config)
 
     agent = PPOAgent(
@@ -127,6 +136,7 @@ def main():
     print(f"  ROI:                {metrics['roi']:.4f}")
     print(f"  Budget utilization: {metrics['budget_utilization']:.2%}")
     print(f"  Win rate:           {metrics['win_rate']:.2%}")
+    print(f"  ep_rew_mean:        {metrics['ep_rew_mean']:.2f} ± {metrics['ep_rew_std']:.2f}")
 
 
 if __name__ == "__main__":

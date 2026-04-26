@@ -195,18 +195,25 @@ class PPOAgent:
         total_cost = 0.0
         total_won = 0
         total_auctions = 0
+        ep_rewards = []
         budget = env.budget
 
         for _ in range(n_eval_episodes):
             obs, _ = env.reset()
             terminated = truncated = False
+            ep_rew = 0.0
             while not (terminated or truncated):
-                action, _, _ = self.select_action(obs, deterministic=True)
-                obs, _reward, terminated, truncated, info = env.step(action)
+                policy_obs = obs
+                if isinstance(self.env, VecNormalize):
+                    policy_obs = self.env.normalize_obs(np.asarray(obs, dtype=np.float32))
+                action, _states = self.model.predict(policy_obs, deterministic=True)
+                obs, reward, terminated, truncated, info = env.step(action)
+                ep_rew += reward
                 total_conversion_value += info["conversion_value"]
                 total_cost += info["cost"]
                 total_won += info["won"]
                 total_auctions += info.get("total_pvs", env._pv_gen.pv_values[0].shape[0])
+            ep_rewards.append(ep_rew)
 
         roi = total_conversion_value / total_cost if total_cost > 0 else 0.0
         budget_utilization = total_cost / (n_eval_episodes * budget)
@@ -216,6 +223,8 @@ class PPOAgent:
             "roi": roi,
             "budget_utilization": budget_utilization,
             "win_rate": win_rate,
+            "ep_rew_mean": float(np.mean(ep_rewards)) if ep_rewards else 0.0,
+            "ep_rew_std": float(np.std(ep_rewards, ddof=1)) if len(ep_rewards) > 1 else 0.0,
         }
 
     def save(self, path: str):
