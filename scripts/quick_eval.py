@@ -36,10 +36,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def _alpha_to_action(alpha: float, max_bid_multiplier: float) -> np.ndarray:
+def _alpha_to_action(alpha: float, max_bid_multiplier: float, action_shape=(1,)) -> np.ndarray:
     """Invert the env's action→alpha rescaling: alpha = ((a+1)/2) * max_bid_multiplier."""
     a = (alpha / max_bid_multiplier) * 2.0 - 1.0
-    return np.array([a], dtype=np.float32)
+    action = np.ones(action_shape, dtype=np.float32)
+    action.flat[0] = a
+    return action
 
 
 def evaluate_fixed_alpha(env: AuctionNetGymEnv, alpha: float, n_episodes: int) -> dict:
@@ -48,7 +50,7 @@ def evaluate_fixed_alpha(env: AuctionNetGymEnv, alpha: float, n_episodes: int) -
     """
     if not 0 <= alpha <= env.max_bid_multiplier:
         raise ValueError(f"alpha {alpha} outside [0, {env.max_bid_multiplier}]")
-    action = _alpha_to_action(alpha, env.max_bid_multiplier)
+    action = _alpha_to_action(alpha, env.max_bid_multiplier, env.action_space.shape)
 
     total_conversion_value = 0.0
     total_cost = 0.0
