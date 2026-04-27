@@ -1,7 +1,9 @@
 import argparse
+from html import parser
 import os
 import sys
 from pathlib import Path
+from agents.fixed_bid_baseline import FixedBidBaseline
 
 import numpy as np
 import yaml
@@ -30,7 +32,7 @@ def parse_args():
     parser.add_argument(
         "--checkpoint",
         type=str,
-        required=True,
+        default = None,
         help="Path to saved PPO checkpoint (.zip or base path)",
     )
     parser.add_argument(
@@ -43,6 +45,18 @@ def parse_args():
         "--deterministic",
         action="store_true",
         help="Use deterministic policy during evaluation",
+    )
+    parser.add_argument(
+        "--agent-type",
+        type=str,
+        default="ppo",
+        choices=["ppo", "fixed"],
+    )
+
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default="eval",
     )
     return parser.parse_args()
 
@@ -138,27 +152,44 @@ def main():
     env_config = config["environment"]
     agent_config = config.get("agent", {})
 
-    checkpoint_path = resolve_path(args.checkpoint)
-    if not checkpoint_path.exists():
-        # SB3 sometimes saves as base path + .zip
-        zip_path = checkpoint_path.with_suffix(".zip")
-        if zip_path.exists():
-            checkpoint_path = zip_path
-        else:
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    checkpoint_path = None
 
-    print(f"Using checkpoint: {checkpoint_path}")
+    if args.agent_type == "ppo":
+        if args.checkpoint is None:
+            raise ValueError("PPO evaluation requires --checkpoint.")
+
+        checkpoint_path = resolve_path(args.checkpoint)
+
+        if not checkpoint_path.exists():
+            zip_path = checkpoint_path.with_suffix(".zip")
+            if zip_path.exists():
+                checkpoint_path = zip_path
+            else:
+                raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+        print(f"Using checkpoint: {checkpoint_path}")
 
     vec_env = DummyVecEnv([make_env(env_config)])
 
-    agent = PPOAgent(
-        observation_space=vec_env.observation_space,
-        action_space=vec_env.action_space,
-        config=agent_config,
-        env=vec_env,
-    )
-    agent.load(str(checkpoint_path), env=vec_env)
+    if args.agent_type == "ppo":
+        if args.checkpoint is None:
+            raise ValueError("PPO requires --checkpoint")
 
+        agent = PPOAgent(
+            observation_space=vec_env.observation_space,
+            action_space=vec_env.action_space,
+            config=agent_config,
+            env=vec_env,
+        )
+        agent.load(str(checkpoint_path), env=vec_env)
+
+    elif args.agent_type == "fixed":
+        agent = FixedBidBaseline(
+            observation_space=vec_env.observation_space,
+            action_space=vec_env.action_space,
+            config=agent_config,
+            env=vec_env,
+        )
     all_metrics = []
 
     for ep in range(args.episodes):

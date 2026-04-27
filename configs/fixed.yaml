@@ -1,0 +1,27 @@
+environment:
+  budget: 2900
+  num_ticks: 48
+  num_episode: 48
+  player_index: 0
+  max_bid_multiplier: 150.0
+  auctionnet_path: ../AuctionNet
+
+  # Local debug
+  pv_num: 5000
+  min_remaining_budget: 0.1
+  reward_lambda_cost: 0.1
+
+
+agent:
+  algorithm: fixed
+  fixed_bid: 50.0   #<-- This is the only parameter for the fixed bid baseline. Adjust as needed.
+
+
+training:
+  total_timesteps: 0
+
+
+logging:
+  use_wandb: false
+  project_name: rl-ad-bidding
+  run_name: fixed_baseline
