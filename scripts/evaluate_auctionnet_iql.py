@@ -172,6 +172,7 @@ def run_iql_eval(env_config: dict, episodes: int) -> dict:
     total_cost = float(result["allCost"])
     budget_utilization = float(result["budget_consumer_ratio"])
     win_rate = float(result["win_pv_ratio"])
+    aggregate_cpa = total_cost / total_value if total_value > 0 else 0.0
 
     return {
         "policy": "auctionnet_pretrained_iql",
@@ -185,7 +186,8 @@ def run_iql_eval(env_config: dict, episodes: int) -> dict:
         "roi": total_value / total_cost if total_cost > 0 else 0.0,
         "budget_utilization": budget_utilization,
         "win_rate": win_rate,
-        "cpa": float(result["cpa"]),
+        "aggregate_cpa": aggregate_cpa,
+        "mean_episode_cpa": float(result["cpa"]),
         "cpa_constraint": float(result["cpaConstraint"]),
         "score": float(result["score"]),
         "raw_result": result,
@@ -203,11 +205,22 @@ def print_metrics(metrics: dict) -> None:
     print(f"ROI value/cost:      {metrics['roi']:.6f}")
     print(f"budget utilization:  {metrics['budget_utilization']:.2%}")
     print(f"win/exposure rate:   {metrics['win_rate']:.2%}")
-    print(f"CPA:                 {metrics['cpa']:.6f}")
+    print(f"aggregate CPA:       {metrics['aggregate_cpa']:.6f}")
+    print(f"mean episode CPA:    {metrics['mean_episode_cpa']:.6f}")
     print(f"CPA constraint:      {metrics['cpa_constraint']:.6f}")
     print(f"score:               {metrics['score']:.6f}")
     print("\nNote: AuctionNet IQL is a scalar-alpha policy, so it does not use")
     print("gcp-run-9's selective_topk second action dimension.")
+
+
+def json_default(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 
 def main() -> None:
@@ -232,7 +245,7 @@ def main() -> None:
         output_path = resolve_path(args.output_json)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2)
+            json.dump(metrics, f, indent=2, default=json_default)
         print(f"\nWrote metrics JSON: {output_path}")
 
 
