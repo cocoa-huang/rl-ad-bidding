@@ -3,7 +3,6 @@ from html import parser
 import os
 import sys
 from pathlib import Path
-from agents.fixed_bid_baseline import FixedBidBaseline
 
 import numpy as np
 import yaml
@@ -19,7 +18,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from environment.gym_wrapper import AuctionNetGymEnv
 from agents.ppo_agent import PPOAgent
 from evaluation.metrics import compute_all_metrics
-
+from agents.iql_agent import IQLAgent
+from agents.fixed_bid_baseline import FixedBidBaseline
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate PPO on AuctionNetGymEnv")
@@ -50,7 +50,7 @@ def parse_args():
         "--agent-type",
         type=str,
         default="ppo",
-        choices=["ppo", "fixed"],
+        choices=["ppo", "fixed", "iql"],
     )
 
     parser.add_argument(
@@ -185,6 +185,13 @@ def main():
 
     elif args.agent_type == "fixed":
         agent = FixedBidBaseline(
+            observation_space=vec_env.observation_space,
+            action_space=vec_env.action_space,
+            config=agent_config,
+            env=vec_env,
+        )
+    elif args.agent_type == "iql":
+        agent = IQLAgent(
             observation_space=vec_env.observation_space,
             action_space=vec_env.action_space,
             config=agent_config,
