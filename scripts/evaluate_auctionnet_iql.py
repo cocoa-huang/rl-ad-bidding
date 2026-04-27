@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import sys
+import types
 from pathlib import Path
 
 import gin
@@ -77,8 +78,34 @@ def require_iql_assets(auctionnet_root: Path) -> None:
         )
 
 
+def stub_optional_model_pv_generator() -> None:
+    """Avoid importing AuctionNet's optional model-PV stack for NeurIPS PV eval.
+
+    AuctionNet's Controller imports ModelPvGenerator at module import time even
+    when the configured generator is "neuripsPvGen". That optional path pulls in
+    extra dependencies such as einops. This baseline only uses NeurIPSPvGen, so
+    provide a small placeholder module to keep the import lightweight.
+    """
+    module_name = "simul_bidding_env.PvGenerator.ModelPvGen"
+    if module_name in sys.modules:
+        return
+
+    module = types.ModuleType(module_name)
+
+    class ModelPvGenerator:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError(
+                "ModelPvGenerator is not available in this lightweight IQL eval. "
+                "Use Controller.pv_generator_type='neuripsPvGen'."
+            )
+
+    module.ModelPvGenerator = ModelPvGenerator
+    sys.modules[module_name] = module
+
+
 def patch_auctionnet_for_project_env(env_config: dict) -> None:
     """Patch AuctionNet's controller to match this project's comparison setup."""
+    stub_optional_model_pv_generator()
     from simul_bidding_env.Controller.Controller import Controller
     from simul_bidding_env.strategy.pid_bidding_strategy import PidBiddingStrategy
 
@@ -109,6 +136,7 @@ def patch_auctionnet_for_project_env(env_config: dict) -> None:
 
 
 def run_iql_eval(env_config: dict, episodes: int) -> dict:
+    stub_optional_model_pv_generator()
     from simul_bidding_env.strategy.iql_bidding_strategy import IqlBiddingStrategy
     import run.run_test as auctionnet_run_test
 
