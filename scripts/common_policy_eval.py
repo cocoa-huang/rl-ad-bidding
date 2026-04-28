@@ -1,5 +1,5 @@
 """
-Common simulator evaluator for PPO, AuctionNet IQL, and fixed-alpha policies.
+Common simulator evaluator for PPO, AuctionNet offline RL, and fixed-alpha policies.
 
 This script exists to answer the project-level question fairly:
 can PPO outperform AuctionNet's offline RL baseline under the same simulation
@@ -72,6 +72,14 @@ def parse_args() -> argparse.Namespace:
                         help="Optional PPO checkpoint base path or .zip path.")
     parser.add_argument("--episodes", type=int, default=48)
     parser.add_argument("--fixed-alphas", type=float, nargs="*", default=[])
+    parser.add_argument(
+        "--auctionnet-baselines",
+        nargs="*",
+        choices=["iql", "td3_bc"],
+        default=None,
+        help="Pretrained AuctionNet scalar-alpha baselines to evaluate. "
+             "Defaults to iql unless --skip-iql is set.",
+    )
     parser.add_argument("--skip-ppo", action="store_true")
     parser.add_argument("--skip-iql", action="store_true")
     parser.add_argument("--output-json", type=str, default=None)
@@ -174,12 +182,22 @@ class FixedAlphaPolicy(PolicyAdapter):
         return self.alpha * pv_values, {"alpha": self.alpha, "keep_fraction": 1.0}
 
 
-class IQLPolicy(PolicyAdapter):
-    def __init__(self, budget: float, cpa: float, category: int):
-        from simul_bidding_env.strategy.iql_bidding_strategy import IqlBiddingStrategy
+class AuctionNetStrategyPolicy(PolicyAdapter):
+    def __init__(self, baseline: str, budget: float, cpa: float, category: int):
+        if baseline == "iql":
+            from simul_bidding_env.strategy.iql_bidding_strategy import IqlBiddingStrategy
 
-        self.strategy = IqlBiddingStrategy(budget=budget, cpa=cpa, category=category)
-        self.name = "auctionnet_pretrained_iql"
+            strategy_cls = IqlBiddingStrategy
+            self.name = "auctionnet_pretrained_iql"
+        elif baseline == "td3_bc":
+            from simul_bidding_env.strategy.td3_bc_bidding_strategy import TD3_BCBiddingStrategy
+
+            strategy_cls = TD3_BCBiddingStrategy
+            self.name = "auctionnet_pretrained_td3_bc"
+        else:
+            raise ValueError(f"Unsupported AuctionNet baseline: {baseline}")
+
+        self.strategy = strategy_cls(budget=budget, cpa=cpa, category=category)
 
     def reset(self) -> None:
         self.strategy.reset()
@@ -197,8 +215,19 @@ class IQLPolicy(PolicyAdapter):
             history["impression"],
             history["least_winning_cost"],
         )
+        bids = np.asarray(bids, dtype=np.float64).reshape(-1)
         alpha = float(np.sum(bids) / max(np.sum(pv_values), 1e-12))
         return bids, {"alpha": alpha, "keep_fraction": 1.0}
+
+
+class IQLPolicy(AuctionNetStrategyPolicy):
+    def __init__(self, budget: float, cpa: float, category: int):
+        super().__init__("iql", budget, cpa, category)
+
+
+class TD3BCPolicy(AuctionNetStrategyPolicy):
+    def __init__(self, budget: float, cpa: float, category: int):
+        super().__init__("td3_bc", budget, cpa, category)
 
 
 class PPOPolicy(PolicyAdapter):
@@ -555,8 +584,16 @@ def main() -> None:
     policies: list[PolicyAdapter] = []
     if not args.skip_ppo:
         policies.append(PPOPolicy(env_config, agent_config, args.run_name, args.checkpoint))
-    if not args.skip_iql:
-        policies.append(IQLPolicy(
+
+    auctionnet_baselines = args.auctionnet_baselines
+    if auctionnet_baselines is None:
+        auctionnet_baselines = [] if args.skip_iql else ["iql"]
+    elif args.skip_iql:
+        auctionnet_baselines = [b for b in auctionnet_baselines if b != "iql"]
+
+    for baseline in auctionnet_baselines:
+        policies.append(AuctionNetStrategyPolicy(
+            baseline,
             budget=float(env_config["budget"]),
             cpa=float(DEFAULT_CPAS[int(env_config["player_index"])]),
             category=int(DEFAULT_CATEGORIES[int(env_config["player_index"])]),
