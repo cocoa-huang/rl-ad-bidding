@@ -15,14 +15,43 @@ strategies in real-time ad auctions. We use
 [AuctionNet (NeurIPS 2024, Alibaba)](https://github.com/alimama-tech/AuctionNet)
 as our primary simulation environment and dataset.
 
-Multiple RL algorithms (PPO, IQL, BCQ) are benchmarked against simple baselines
-on three core metrics:
+The final system trains a budget-aware PPO policy in a Gymnasium wrapper around
+AuctionNet, then evaluates it against AuctionNet pretrained offline-RL policies
+and fixed-alpha baselines in a shared simulation loop.
 
 | Metric | Description |
 |--------|-------------|
 | **ROI** | Total conversion value won / total budget spent |
 | **Budget Utilization** | Amount spent / total budget available |
 | **Win Rate** | Auctions won / auctions entered |
+
+---
+
+## Final Results
+
+Final results use `configs/gcp-run-9-selective.yaml`, where the PPO policy
+chooses both bid intensity and selectivity:
+
+- `action[0] -> alpha in [0, 150]`
+- `action[1] -> keep_fraction in [0.05, 1.0]`
+- bids are `alpha * pValue` only for the top `keep_fraction` PVs by pValue
+
+The table below comes from `scripts/common_policy_eval.py` over 500 episodes.
+All policies run through the same AuctionNet simulation loop and are scored with
+the same metrics.
+
+| Policy | Conversions | Cost | Utilization | CPA ↓ | Conv. ROI ↑ | Slot Win | Exposure | Shaped Reward |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| PPO gcp-run-9-selective | 1349 | 49,775.26 | 66.37% | 36.90 | 0.02710 | 5.31% | 5.05% | 297.78 ± 213.57 |
+| AuctionNet pretrained IQL | 1140 | 74,553.77 | 99.41% | 65.40 | 0.01529 | 12.44% | 12.14% | 162.06 ± 184.52 |
+| fixed alpha 100 | 1120 | 40,196.19 | 53.59% | 35.89 | 0.02786 | 4.86% | 4.54% | 260.68 ± 190.32 |
+| fixed alpha 130 | 1203 | 52,986.68 | 70.65% | 44.05 | 0.02270 | 5.88% | 5.56% | 259.57 ± 197.57 |
+
+Selective PPO outperforms the AuctionNet pretrained IQL baseline on
+conversions, CPA, conversion ROI, and shaped reward under the shared evaluator.
+Against fixed alpha, PPO has the best shaped reward and a better
+reward/utilization tradeoff, but fixed alpha 100 remains slightly better on pure
+ROI and CPA by spending less.
 
 ---
 
@@ -75,17 +104,6 @@ rl-ad-bidding/
 
 ---
 
-## Team
-
-| Person | Area | Responsibility |
-|--------|------|----------------|
-| Person A | `environment/` | Gymnasium wrapper, data pipeline, HPC setup |
-| Person B | `agents/` | PPO implementation, baseline agents |
-| Person C | `evaluation/` | Metrics, ablations, W&B dashboards |
-| Person D | report/ | Literature review, presentation, floats between teams |
-
----
-
 ## Usage
 
 ### Run training locally
@@ -112,8 +130,9 @@ prints comparable metrics.
 python scripts/common_policy_eval.py \
   --config configs/gcp-run-9-selective.yaml \
   --run-name gcp-run-9-selective \
-  --episodes 48 \
-  --fixed-alphas 50 100 130 150
+  --episodes 500 \
+  --fixed-alphas 100 130 \
+  --output-json results/common_eval_gcp_run_9_selective_500.json
 ```
 
 ### Submit a training job on NYU Greene HPC
