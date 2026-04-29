@@ -20,9 +20,13 @@ on three core metrics:
 
 | Metric | Description |
 |--------|-------------|
-| **ROI** | Total conversion value won / total budget spent |
+| **Value per Spend** | Total conversion value / total spend (proxy for ROAS when value is scaled conversions) |
 | **Budget Utilization** | Amount spent / total budget available |
 | **Win Rate** | Auctions won / auctions entered |
+
+Notes on naming:
+- AuctionNet reports `reward` and `allCost` in its own evaluation loop. In this repo we treat `reward/allCost` as **value per spend**.
+- In many adtech contexts this is called **ROAS** only when conversion value is true revenue. In our setup, conversion value is typically `reward_value_scale × conversions` (a proxy).
 
 ---
 
@@ -37,15 +41,18 @@ on three core metrics:
 ### Installation
 
 ```bash
-# 1. Clone this repo alongside the AuctionNet sibling repo
-git clone --recurse-submodules https://github.com/YOUR_ORG/rl-ad-bidding.git
+# 1. Clone this repo
+git clone https://github.com/cocoa-huang/rl-ad-bidding.git
 cd rl-ad-bidding
 
-# 2. Create the conda environment with the exact Python version
+# 2. Clone AuctionNet as a sibling directory (expected at ../AuctionNet)
+git clone https://github.com/alimama-tech/AuctionNet.git ../AuctionNet
+
+# 3. Create the conda environment with the exact Python version
 conda create -n rl-ad-bidding python=3.9.12
 conda activate rl-ad-bidding
 
-# 3. Install Python dependencies
+# 4. Install Python dependencies
 pip install -r requirements.txt
 ```
 
@@ -91,6 +98,28 @@ rl-ad-bidding/
 python scripts/train.py --config configs/default.yaml
 ```
 
+### Evaluate AuctionNet pretrained IQL baseline
+
+This evaluates AuctionNet's official pretrained IQL policy under the key knobs
+from a chosen config (budget, ticks, pv_num, player_index).
+
+```bash
+python scripts/evaluate_auctionnet_iql.py --config configs/gcp-run-9-selective.yaml
+```
+
+### Compare PPO vs IQL vs fixed-alpha in one shared simulator loop
+
+This runs all selected policies inside the same AuctionNet simulation loop and
+prints comparable metrics.
+
+```bash
+python scripts/common_policy_eval.py \
+  --config configs/gcp-run-9-selective.yaml \
+  --run-name gcp-run-9-selective \
+  --episodes 48 \
+  --fixed-alphas 50 100 130 150
+```
+
 ### Submit a training job on NYU Greene HPC
 
 ```bash
@@ -120,13 +149,13 @@ The `data/` directory is gitignored — raw data is never committed to this repo
 To generate data:
 
 ```bash
-# Instructions TBD — see AuctionNet sibling repo for data generation scripts
+# See AuctionNet repo for data generation scripts and episode assets.
 ```
 
 To download pre-generated data from shared storage:
 
 ```bash
-# Instructions TBD — link to NYU Google Drive or HPC scratch space
+# Not required for the core AuctionNet NeurIPS PV generator path used in this repo.
 ```
 
 ---
