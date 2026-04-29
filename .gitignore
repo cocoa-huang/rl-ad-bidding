@@ -30,6 +30,14 @@ venv/
 
 # Experiment tracking
 wandb/
+logs/
+
+# Local AI assistant / graph context (never commit)
+AGENTS.md
+PROJECT_MAP.md
+.codex/
+.graphifyignore
+graphify-out/
 
 # OS files
 .DS_Store

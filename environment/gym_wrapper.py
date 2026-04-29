@@ -8,8 +8,8 @@ Gymnasium-compatible algorithm) can train on it directly.
 
 MDP mapping:
   - 1 Gym step  = 1 AuctionNet tick  (48 steps per episode)
-  - Action      = scalar bid multiplier α ∈ [0, max_bid_multiplier]
-  - Bids        = α × pValues  (computed internally for all PVs in the tick)
+  - Action      = scalar bid multiplier alpha, optionally plus selectivity
+  - Bids        = alpha * pValues, optionally masked to high-pValue PVs
   - Reward      = conversion_value_won - cost  (simple baseline, no λ yet)
   - Observation = 7-dim vector (see _get_obs docstring)
 
@@ -137,8 +137,9 @@ class AuctionNetGymEnv(gymnasium.Env):
 
     Each episode runs for num_ticks=48 steps. At each step the agent supplies
     a scalar bid multiplier α; the wrapper bids α × pValue for every PV
-    opportunity in that tick, runs the second-price auction against 47
-    rule-based competitors, and returns the aggregate outcome.
+    opportunity in that tick, optionally masks low-pValue opportunities, runs
+    the second-price auction against 47 rule-based competitors, and returns the
+    aggregate outcome.
 
     Observation space (7-dim Box, float32):
         [0] remaining_budget / initial_budget
@@ -149,8 +150,10 @@ class AuctionNetGymEnv(gymnasium.Env):
         [5] win rate over the last 3 ticks (0 if tick < 1)
         [6] pacing_ratio = spend_fraction / time_fraction (1.0 at tick 0)
 
-    Action space (1-dim Box, float32):
-        α ∈ [0, max_bid_multiplier]  →  bids = α × pValues
+    Action space:
+        scalar mode: 1-dim Box[-1, 1] where action[0] maps to alpha.
+        selective_topk mode: 2-dim Box[-1, 1] where action[0] maps to alpha
+        and action[1] maps to the fraction of highest-pValue PVs to bid on.
 
     Reward:
         r_t = conversion_value_won_t - cost_t
@@ -185,7 +188,18 @@ class AuctionNetGymEnv(gymnasium.Env):
         self.max_bid_multiplier = float(config["max_bid_multiplier"])
         self.pv_num = int(config["pv_num"])
         self.min_remaining_budget = float(config["min_remaining_budget"])
+        self.reward_value_scale = float(config.get("reward_value_scale", 1.0))
         self.reward_lambda_cost = float(config.get("reward_lambda_cost", 1.0))
+        self.reward_alpha_utilization = float(config.get("reward_alpha_utilization", 0.0))
+        self.reward_beta_pacing = float(config.get("reward_beta_pacing", 0.0))
+        self.action_mode = str(config.get("action_mode", "scalar"))
+        if self.action_mode not in {"scalar", "selective_topk"}:
+            raise ValueError(
+                f"Unsupported action_mode={self.action_mode!r}; "
+                "expected 'scalar' or 'selective_topk'."
+            )
+        self.min_keep_fraction = float(config.get("min_keep_fraction", 0.05))
+        self.min_keep_fraction = float(np.clip(self.min_keep_fraction, 0.0, 1.0))
 
         # --- import AuctionNet modules (after path is set) ---
         from simul_bidding_env.Environment.BiddingEnv import BiddingEnv
@@ -214,9 +228,10 @@ class AuctionNetGymEnv(gymnasium.Env):
             high=np.full(7, np.inf, dtype=np.float32),
             dtype=np.float32,
         )
+        action_dim = 2 if self.action_mode == "selective_topk" else 1
         self.action_space = Box(
-            low=np.array([0.0], dtype=np.float32),
-            high=np.array([self.max_bid_multiplier], dtype=np.float32),
+            low=np.full(action_dim, -1.0, dtype=np.float32),
+            high=np.full(action_dim, 1.0, dtype=np.float32),
             dtype=np.float32,
         )
 
@@ -225,6 +240,9 @@ class AuctionNetGymEnv(gymnasium.Env):
         self._episode = 0
         self._remaining_budget = self.budget
         self._total_spend = 0.0
+        self._total_conversion_value = 0.0
+        self._total_won = 0
+        self._total_pvs = 0
         self._last_lwc = 0.0          # least winning cost from previous tick
         self._recent_xi = []          # list of (n_won, n_total) per tick for win rate
         self._current_pv_values = None
@@ -277,6 +295,9 @@ class AuctionNetGymEnv(gymnasium.Env):
         self._tick = 0
         self._remaining_budget = self.budget
         self._total_spend = 0.0
+        self._total_conversion_value = 0.0
+        self._total_won = 0
+        self._total_pvs = 0
         self._last_lwc = 0.0
         self._recent_xi = []
 
@@ -306,7 +327,7 @@ class AuctionNetGymEnv(gymnasium.Env):
             truncated (bool)
             info (dict)
         """
-        alpha = float(np.clip(action, 0.0, self.max_bid_multiplier))
+        alpha, keep_fraction = self._decode_action(action)
 
         pv_values = self._pv_gen.pv_values[self._tick]         # (n_pv, 48)
         pvalue_sigmas = self._pv_gen.pValueSigmas[self._tick]  # (n_pv, 48)
@@ -323,7 +344,11 @@ class AuctionNetGymEnv(gymnasium.Env):
         all_bids = []
         for i, agent in enumerate(self._agents):
             if i == p:
-                bids_i = alpha * pv_values[:, i]
+                player_pvalues = pv_values[:, i]
+                bids_i = alpha * player_pvalues
+                if self.action_mode == "selective_topk" and keep_fraction < 1.0:
+                    cutoff = float(np.quantile(player_pvalues, 1.0 - keep_fraction))
+                    bids_i = np.where(player_pvalues >= cutoff, bids_i, 0.0)
             elif agent is None or remaining_budgets[i] < self._bidding_env.min_remaining_budget:
                 bids_i = np.zeros(pv_values.shape[0])
             else:
@@ -363,17 +388,26 @@ class AuctionNetGymEnv(gymnasium.Env):
             _adjust_over_cost(bids, over_cost_ratio,
                                self._bidding_env.slot_coefficients, winner_pit)
 
-        # --- update budgets ---
+        # --- update budgets and episode accumulators ---
         self._remaining_budget -= real_cost[p]
         self._total_spend += real_cost[p]
+        self._total_conversion_value += float(conversion_action_pit[p].sum())
+        self._total_won += int(xi_pit[p].sum())
+        self._total_pvs += int(xi_pit.shape[1])
         for i, agent in enumerate(self._agents):
             if agent is not None and i != p:
                 agent.remaining_budget -= real_cost[i]
 
-        # --- compute reward: conversion value - cost (player only) ---
-        player_conversion_value = float(conversion_action_pit[p].sum())
+        # --- compute reward ---
+        player_conversion_value = float(conversion_action_pit[p].sum())  # this tick only
         player_cost = float(real_cost[p])
-        reward = player_conversion_value - self.reward_lambda_cost * player_cost
+        # pacing_ratio after this tick: spend_frac / time_frac_elapsed
+        # uses tick+1 so time_frac is never zero (we just completed tick self._tick)
+        _time_frac = (self._tick + 1) / self.num_ticks
+        _pacing_ratio = (self._total_spend / self.budget) / _time_frac
+        reward = (self.reward_value_scale * player_conversion_value
+                  - self.reward_lambda_cost * player_cost
+                  + self.reward_beta_pacing * min(_pacing_ratio, 1.0))
 
         # --- track least winning cost and win rate ---
         self._last_lwc = float(lwc_pit.mean())  # average market clearing price
@@ -412,12 +446,19 @@ class AuctionNetGymEnv(gymnasium.Env):
 
         info = {
             "won": n_won,
+            "total_pvs": n_total,
             "cost": player_cost,
             "conversion_value": player_conversion_value,
             "tick": self._tick,
             "total_budget": self.budget,
             "remaining_budget": self._remaining_budget,
+            "alpha": alpha,
+            "keep_fraction": keep_fraction,
         }
+        if terminated:
+            info["budget_utilization"] = self._total_spend / self.budget
+            info["roi"] = self._total_conversion_value / max(self._total_spend, 1e-8)
+            info["win_rate"] = self._total_won / max(self._total_pvs, 1)
 
         return self._get_obs(), reward, terminated, truncated, info
 
@@ -430,6 +471,23 @@ class AuctionNetGymEnv(gymnasium.Env):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _decode_action(self, action) -> tuple[float, float]:
+        """Map normalized policy action to bid alpha and PV keep fraction."""
+        action_arr = np.asarray(action, dtype=np.float32).reshape(-1)
+        alpha_signal = float(action_arr[0]) if action_arr.size else 0.0
+        alpha_signal = float(np.clip(alpha_signal, -1.0, 1.0))
+        alpha = ((alpha_signal + 1.0) / 2.0) * self.max_bid_multiplier
+
+        keep_fraction = 1.0
+        if self.action_mode == "selective_topk":
+            keep_signal = float(action_arr[1]) if action_arr.size > 1 else 1.0
+            keep_signal = float(np.clip(keep_signal, -1.0, 1.0))
+            keep_raw = (keep_signal + 1.0) / 2.0
+            keep_fraction = self.min_keep_fraction + keep_raw * (1.0 - self.min_keep_fraction)
+            keep_fraction = float(np.clip(keep_fraction, self.min_keep_fraction, 1.0))
+
+        return alpha, keep_fraction
 
     def _get_obs(self) -> np.ndarray:
         """Build the 7-dimensional observation vector.

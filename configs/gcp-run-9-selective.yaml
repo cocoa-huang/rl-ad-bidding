@@ -1,0 +1,67 @@
+# gcp-run-9-selective — action-space test after gcp-run-8.
+#
+# Hypothesis:
+#   gcp-run-8 likely reached the ceiling of scalar-alpha PPO. The policy can
+#   only move all bids up/down together, so it cannot express "skip low-pValue
+#   PVs and preserve budget for better opportunities." This run keeps the
+#   gcp-run-8 environment, reward, and PPO stabilization package fixed, and
+#   changes only the action space.
+#
+# Action mode:
+#   action[0] in [-1, 1] -> alpha in [0, max_bid_multiplier]
+#   action[1] in [-1, 1] -> keep_fraction in [min_keep_fraction, 1]
+#
+# The env bids alpha * pValue only on the top keep_fraction of PVs within the
+# current tick, ranked by this player's pValue. Fixed-alpha baselines remain
+# comparable because quick_eval maps them to keep_fraction=1.0.
+
+environment:
+  budget: 150
+  num_ticks: 48
+  num_episode: 48
+  player_index: 0
+  max_bid_multiplier: 150.0
+  auctionnet_path: ../AuctionNet
+  pv_num: 50000
+  min_remaining_budget: 0.1
+  reward_value_scale: 100.0
+  reward_lambda_cost: 1.0
+  reward_alpha_utilization: 0.0
+  reward_beta_pacing: 3.0
+  action_mode: selective_topk
+  min_keep_fraction: 0.05
+
+agent:
+  algorithm: ppo
+  policy: MlpPolicy
+  lr: 1e-4
+  n_steps: 4096
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  total_timesteps: 2000000
+  device: cpu
+  policy_kwargs:
+    net_arch:
+      pi: [256, 256]
+      vf: [256, 256]
+
+training:
+  n_episodes: 1000
+  n_envs: 8
+  eval_interval: 100
+  n_eval_episodes: 20
+  save_interval: 500
+  early_stop_patience: 25
+  norm_reward: true
+
+logging:
+  use_wandb: true
+  project_name: rl-ad-bidding
+  entity: sp9019-nyu
+  run_name: gcp-run-9-selective

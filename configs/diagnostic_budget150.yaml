@@ -1,0 +1,24 @@
+# Diagnostic config: same as gcp-run-5 but player budget reduced to $150.
+# Tests Path B hypothesis — that the ~5% utilization ceiling at $2900 budget
+# is purely a budget-arithmetic artifact (player wins ~6% × $0.05/win × 50k PVs
+# ≈ $150 spend regardless of strategy), not a learnable RL constraint.
+#
+# At budget=$150, the same per-α spend ($54/$107/$140 at α=50/100/130) maps to
+# 36% / 71% / 93% utilization — a regime where pacing reward is genuinely
+# active and PPO has a real gradient between strategies.
+#
+# Use only with scripts/quick_eval.py --alpha-override; not for training yet.
+
+environment:
+  budget: 150                   # CHANGED from 2900 — sole experimental variable
+  num_ticks: 48
+  num_episode: 48
+  player_index: 0               # back to default — Path A confirmed CPA isn't the issue
+  max_bid_multiplier: 150.0
+  auctionnet_path: ../AuctionNet
+  pv_num: 50000
+  min_remaining_budget: 0.1
+  reward_value_scale: 100.0     # unchanged — CPA for player_index=0
+  reward_lambda_cost: 1.0
+  reward_alpha_utilization: 0.0
+  reward_beta_pacing: 3.0

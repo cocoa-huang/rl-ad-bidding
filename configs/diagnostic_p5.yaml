@@ -1,0 +1,18 @@
+# Diagnostic config: same as gcp-run-5 but player_index=5 (CPA=130, category 0).
+# Used only with scripts/quick_eval.py --alpha-override to test whether the
+# ~5% utilization ceiling observed at player_index=0 is CPA-driven.
+# Not for training.
+
+environment:
+  budget: 2900                  # held constant vs gcp-run-5 to isolate player_index effect
+  num_ticks: 48
+  num_episode: 48
+  player_index: 5               # CPA=130, same category as player_index=0 (CPA=100)
+  max_bid_multiplier: 150.0
+  auctionnet_path: ../AuctionNet
+  pv_num: 50000
+  min_remaining_budget: 0.1
+  reward_value_scale: 100.0     # held constant vs gcp-run-5 so ep_rew_mean is comparable
+  reward_lambda_cost: 1.0
+  reward_alpha_utilization: 0.0
+  reward_beta_pacing: 3.0

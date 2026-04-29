@@ -4,23 +4,39 @@ environment:
   num_episode: 48           # episodes available in the dataset (cycles 0-47)
   player_index: 0
   max_bid_multiplier: 150.0   # competitors bid cpa * pValues, cpa range is 60-130
+                              # Action space is [-1, 1]; rescaled to [0, max_bid_multiplier] in step()
   auctionnet_path: ../AuctionNet
-  pv_num: 500000
+  pv_num: 50000
   min_remaining_budget: 0.1
-  reward_lambda_cost: 1.0 # Cost penalty coefficient for reward shaping
+  reward_lambda_cost: 0.0        # 0 = pure value reward; 1.0 = full profit reward
+  reward_alpha_utilization: 0.0  # deprecated — use reward_beta_pacing instead
+  reward_beta_pacing: 2.0        # per-step pacing weight: r_t += beta * (cost_t / budget)
 
 agent:
   algorithm: ppo
+  policy: MlpPolicy
   lr: 3e-4
+  n_steps: 384          # 48 ticks × 8 envs — keeps GAE within complete episodes
+  batch_size: 128
+  n_epochs: 10
   gamma: 0.99
-  batch_size: 64
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.01        # exploration bonus; 0.0 causes collapse on [0, 150] action space
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  total_timesteps: 500000
+  device: cpu
 
 training:
   n_episodes: 1000
+  n_envs: 8                 # SubprocVecEnv workers; n_steps=384 is tuned for this value
   eval_interval: 100
   save_interval: 500
+  early_stop_patience: 10   # evals without improvement before halting
 
 logging:
   use_wandb: true
   project_name: rl-ad-bidding
-  run_name: baseline
+  entity: sp9019-nyu
+  run_name: eric-dense-pacing

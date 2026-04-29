@@ -1,0 +1,55 @@
+# gcp-run-7 — first training run in the budget-binding regime.
+#
+# Combines:
+#   - environment from diagnostic_budget150.yaml (Path B): budget=$150
+#     reframes the env so utilization is meaningful and PPO has a real
+#     reward gradient. α-sweep at this budget showed an inverted-U landscape
+#     with peak ep_rew_mean ≈ 317 at α=100, ≈ 147 at α=50, ≈ 201 at α=130.
+#   - agent block from gcp-run-6.yaml (PPO sizing/entropy fix): n_steps=4096,
+#     batch_size=64, ent_coef=0; sized for the GCP VM's 8 vCPUs.
+#
+# This is the first run where PPO has both (a) a learnable gradient AND
+# (b) hyperparameters sized to extract it. gcp-run-5 had neither.
+
+environment:
+  budget: 150                   # binding constraint — pacing now matters
+  num_ticks: 48
+  num_episode: 48
+  player_index: 0
+  max_bid_multiplier: 150.0     # max α just barely overspends — creates pacing pressure
+  auctionnet_path: ../AuctionNet
+  pv_num: 50000
+  min_remaining_budget: 0.1
+  reward_value_scale: 100.0     # CPA for player_index=0
+  reward_lambda_cost: 1.0
+  reward_alpha_utilization: 0.0
+  reward_beta_pacing: 3.0
+
+agent:
+  algorithm: ppo
+  policy: MlpPolicy
+  lr: 3e-4
+  n_steps: 4096        # 4096 × 8 envs = 32K env steps (~680 ep) per PPO update
+  batch_size: 64       # ~5K grad steps/update at 10 epochs
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.0        # let policy commit; previous 0.01 pinned std at init
+  vf_coef: 0.5
+  max_grad_norm: 0.5
+  total_timesteps: 1000000
+  device: cpu
+
+training:
+  n_episodes: 1000
+  n_envs: 8            # matched to e2-standard-8 vCPU count
+  eval_interval: 100
+  save_interval: 500
+  early_stop_patience: 10
+
+logging:
+  use_wandb: true
+  project_name: rl-ad-bidding
+  entity: sp9019-nyu
+  run_name: gcp-run-7

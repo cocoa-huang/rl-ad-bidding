@@ -95,21 +95,13 @@ def compute_budget_utilization(trajectory: List[Step]) -> float:
         trajectory (list): List of step tuples (obs, action, reward, info)
             from one full episode. Each info dict must contain:
                 - 'cost' (float): amount spent at this step
-            The first info dict (or episode metadata) must contain:
                 - 'total_budget' (float): the episode's starting budget
 
     Returns:
         utilization (float): Fraction of budget spent, in [0, 1].
     """
     total_cost = compute_total_cost(trajectory)
-
-    first_info = _extract_info(trajectory[0])
-    last_info = _extract_info(trajectory[-1])
-
-    remaining_budget_end = last_info["remaining_budget"]
-
-    # Infer initial budget
-    initial_budget = remaining_budget_end + total_cost
+    initial_budget = float(_extract_info(trajectory[0])["total_budget"])
 
     if initial_budget <= 0:
         return 0.0
@@ -131,19 +123,19 @@ def compute_win_rate(trajectory: List[Step]) -> float:
     Args:
         trajectory (list): List of step tuples (obs, action, reward, info)
             from one full episode. Each info dict must contain:
-                - 'won' (bool): True if the agent won this auction step.
+                - 'won' (int): number of auctions won this tick
+                - 'total_pvs' (int): total auction opportunities this tick
 
     Returns:
         win_rate (float): Fraction of auctions won, in [0, 1].
     """
-   
-    wins = sum(1 for step in trajectory if _extract_info(step)["won"])
-    total_steps = len(trajectory)
+    total_won = sum(_extract_info(step)["won"] for step in trajectory)
+    total_pvs = sum(_extract_info(step)["total_pvs"] for step in trajectory)
 
-    if total_steps == 0:
+    if total_pvs == 0:
         return 0.0
 
-    return wins / total_steps
+    return total_won / total_pvs
 
 
 def compute_avg_cost(trajectory: List[Step]) -> float:
