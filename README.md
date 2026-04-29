@@ -20,13 +20,9 @@ on three core metrics:
 
 | Metric | Description |
 |--------|-------------|
-| **Value per Spend** | Total conversion value / total spend (proxy for ROAS when value is scaled conversions) |
+| **ROI** | Total conversion value won / total budget spent |
 | **Budget Utilization** | Amount spent / total budget available |
 | **Win Rate** | Auctions won / auctions entered |
-
-Notes on naming:
-- AuctionNet reports `reward` and `allCost` in its own evaluation loop. In this repo we treat `reward/allCost` as **value per spend**.
-- In many adtech contexts this is called **ROAS** only when conversion value is true revenue. In our setup, conversion value is typically `reward_value_scale × conversions` (a proxy).
 
 ---
 
